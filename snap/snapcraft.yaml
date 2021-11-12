@@ -1,15 +1,14 @@
-name: dayon
-title: Dayon!
-adopt-info: dayon
-summary: An easy-to-use, cross-platform remote desktop assistance solution
+name: Fensterkitt
+title: Fensterkitt Support App
+version: '11.0.0'
+summary: An easy to use, cross-platform remote desktop assistance solution
 description: |
-  An easy-to-use, cross-platform remote desktop support solution for everyone.
-  It can be used as free alternative to various commercial remote desktop and remote assistance products.
+  Fensterkitt Support App for easy remote assistance.
+
   Its key features are
-  - no router or network configuration required on the assisted side
+  - no router or network configuration required
   - friendly, multilingual (de/en/es/fr/it/ru/tr/zh) user interface
-  - assistant and assisted functionality in one package
-  - secure, encrypted communication (TLS 1.3)
+  - secure, encrypted communication (TLS)
 license: GPL-3.0
 grade: stable
 base: core18
@@ -19,24 +18,10 @@ apps:
   assisted:
     extensions:
       [gnome-3-28]
-    environment:
-      JAVA_HOME: $SNAP/usr/lib/jvm/java-11-openjdk-$SNAP_ARCH
-      PATH: $JAVA_HOME/bin:$JAVA_HOME/jre/bin:$PATH
-    command: bin/dayon.launcher $SNAP/jar/dayon.jar $1 $2 $3 $4 $5
+    command: bin/dayon.launcher $SNAP/jar/dayon.jar mpo.dayon.assisted.AssistedRunner $1 $2 $3
     desktop: ../parts/dayon/build/target/dayon.assisted.desktop
     plugs:
-      [home, network, network-bind, desktop]
-
-  assistant:
-    extensions:
-      [gnome-3-28]
-    environment:
-      JAVA_HOME: $SNAP/usr/lib/jvm/java-11-openjdk-$SNAP_ARCH
-      PATH: $JAVA_HOME/bin:$JAVA_HOME/jre/bin:$PATH
-    command: bin/dayon.launcher $SNAP/jar/dayon.jar assistant $1 $2 $3
-    desktop: ../parts/dayon/build/target/dayon.assistant.desktop
-    plugs:
-      [home, network, network-bind, desktop]
+      [home, network, desktop]
 
   browser:
     extensions:
@@ -53,30 +38,15 @@ parts:
     source-type: git
     maven-options:
       [-Psnap]
-
-    build-packages:
-      [default-jre]
-
     override-build: |
       snapcraftctl build
-      cp target/dayon.browser $SNAPCRAFT_PART_INSTALL/bin/
-      cp target/dayon.launcher $SNAPCRAFT_PART_INSTALL/bin/
-      cp target/dayon.png $SNAPCRAFT_PART_INSTALL/bin/
-
-    override-pull: |
-      snapcraftctl pull
-      snapcraftctl set-version "$(git describe --tags | sed 's/^v//' | cut -d "-" -f1)"
-
+      cp target/dayon.browser ../install/bin/
+      cp target/dayon.launcher ../install/bin/
+      cp target/dayon.png ../install/bin/
     filesets:
       exclude-original-jar:
         [-jar/original-dayon.jar]
-
     stage:
       [$exclude-original-jar]
-
     stage-packages:
       [default-jre]
-
-    override-prime: |
-      snapcraftctl prime
-      rm -vf usr/lib/jvm/java-11-openjdk-*/lib/security/blacklisted.certs

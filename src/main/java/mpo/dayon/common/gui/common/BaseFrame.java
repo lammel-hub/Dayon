@@ -81,14 +81,11 @@ public abstract class BaseFrame extends JFrame {
         Locale newLocale = InputContext.getInstance().getLocale();
         if (newLocale != currentLocale) {
             currentLocale = newLocale;
-            setTitle(format("Dayon! (%s) %s %s", translate(frameType.getPrefix()), Version.get(), currentLocale != null ? currentLocale.toString() : ""));
+            setTitle(format("Fensterkitt (%s) %s %s", translate(frameType.getPrefix()), Version.get(), currentLocale != null ? currentLocale.toString() : ""));
         }
     }
 
     protected void setupToolBar(ToolBar toolBar) {
-        toolBar.addAction(createShowInfoAction());
-        toolBar.addAction(createShowHelpAction());
-        toolBar.addSeparator();
         toolBar.addAction(createExitAction());
         add(toolBar, BorderLayout.NORTH);
         this.toolBar = toolBar;
