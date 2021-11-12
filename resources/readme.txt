@@ -1,4 +1,4 @@
-Thank you for downloading Dayon!
+Thank you for downloading Fensterkitt Support App
 
 Contents:
 
@@ -12,18 +12,10 @@ Preferences (e.g., window location) & log file are saved in the directory:
   USER_HOME/.dayon
   
   
-Running Dayon!
+Running Fensterkitt Support App
 
-  On the assistant machine (acting as a server) click the Dayon.Assistant link or run the dayon_assistant script.
-  Open the connection port (e.g., firewall, DSL router, NAT, etc...) and note your external
-  IP address (e.g., http://whatismyip.com/).
-
-  The settings (e.g., number of capture per second, compression method, ...) will be sent
-  to the assisted machine during the connection. The assisted has nothing to do except entering
-  the IP address and port number as described below.
-  
-  On the assisted machine (acting as a client) click the Dayon! link or run the dayon_assisted script.
-  Enter the (external) IP address and port number of the assistant machine.
+  On the assisted machine (acting as a client) click the Fensterkitt link or run the dayon_assisted script.
+  Enter the token provided by of the assistant.
   
 
 Linux:

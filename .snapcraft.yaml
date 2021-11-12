@@ -1,15 +1,13 @@
-name: dayon
-title: Dayon!
+name: Fensterkitt
+title: Fensterkitt Support App
 version: '11.0.0'
 summary: An easy to use, cross-platform remote desktop assistance solution
 description: |
-  Dayon! allows accessing and controlling remote computers.
-  It can be used as free alternative to various commercial remote desktop and remote assistance products.
+  Fensterkitt Support App for easy remote assistance.
 
   Its key features are
-  - no router or network configuration required on the assisted side
+  - no router or network configuration required
   - friendly, multilingual (de/en/es/fr/it/ru/tr/zh) user interface
-  - assistant and assisted functionality in one package
   - secure, encrypted communication (TLS)
 license: GPL-3.0
 grade: stable
@@ -22,14 +20,6 @@ apps:
       [gnome-3-28]
     command: bin/dayon.launcher $SNAP/jar/dayon.jar mpo.dayon.assisted.AssistedRunner $1 $2 $3
     desktop: ../parts/dayon/build/target/dayon.assisted.desktop
-    plugs:
-      [home, network, desktop]
-
-  assistant:
-    extensions:
-      [gnome-3-28]
-    command: bin/dayon.launcher $SNAP/jar/dayon.jar mpo.dayon.assistant.AssistantRunner $1
-    desktop: ../parts/dayon/build/target/dayon.assistant.desktop
     plugs:
       [home, network, desktop]
 

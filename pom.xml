@@ -7,7 +7,7 @@
     <name>Dayon!</name>
     <url>https://github.com/retgal/dayon</url>
     <groupId>mpo.dayon</groupId>
-    <artifactId>dayon</artifactId>
+    <artifactId>fensterkitt</artifactId>
     <version>11.0.0</version>
     <description>cross platform remote desktop solution</description>
     <developers>
@@ -124,10 +124,6 @@
                                     <target>dayon.sh</target>
                                 </fileSet>
                                 <fileSet>
-                                    <source>${basedir}/dist/dayon_assistant.sh</source>
-                                    <target>dayon_assistant.sh</target>
-                                </fileSet>
-                                <fileSet>
                                     <source>${basedir}/dist/dayon_assisted.sh</source>
                                     <target>dayon_assisted.sh</target>
                                 </fileSet>
@@ -169,7 +165,7 @@
                                     <mainClass>${dayon.mainClass}</mainClass>
                                 </manifest>
                                 <manifestEntries>
-                                    <Application-Name>Dayon!</Application-Name>
+                                    <Application-Name>Fensterkitt</Application-Name>
                                     <Implementation-Version>${project.version}</Implementation-Version>
                                     <Permissions>all-permissions</Permissions>
                                     <Trusted-Library>true</Trusted-Library>
@@ -283,7 +279,7 @@
                 <activeByDefault>true</activeByDefault>
             </activation>
             <build>
-                <finalName>dayon</finalName>
+                <finalName>fensterkitt</finalName>
                 <plugins>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
@@ -329,7 +325,7 @@
                                     <mainClass>${dayon.mainClass}</mainClass>
                                 </manifest>
                                 <manifestEntries>
-                                    <Application-Name>Dayon!</Application-Name>
+                                    <Application-Name>Fensterkitt</Application-Name>
                                     <Implementation-Version>${project.version}</Implementation-Version>
                                     <Permissions>all-permissions</Permissions>
                                     <Trusted-Library>true</Trusted-Library>
@@ -436,10 +432,8 @@
                                     <arguments>
                                         <argument>+x</argument>
                                         <argument>${basedir}/dist/dayon</argument>
-                                        <argument>${basedir}/dist/dayon_assistant</argument>
                                         <argument>${basedir}/dist/dayon_assisted</argument>
                                         <argument>${basedir}/dist/dayon.sh</argument>
-                                        <argument>${basedir}/dist/dayon_assistant.sh</argument>
                                         <argument>${basedir}/dist/dayon_assisted.sh</argument>
                                         <argument>${basedir}/dist/setup.sh</argument>
                                     </arguments>

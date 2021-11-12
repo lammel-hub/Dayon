@@ -73,7 +73,7 @@ public abstract class BaseFrame extends JFrame {
         this.dimension = new Dimension(Math.max(configuration.getWidth(), MIN_WIDTH),
                 Math.max(configuration.getHeight(), MIN_HEIGHT));
         this.setSize(dimension.width, dimension.height);
-        String titleString = frameType.equals(FrameType.ASSISTANT) ? translate("assistant") : translate("assisted");
+        String titleString = "Fensterkitt";
         updateTitle(titleString, Version.get());
     }
 
@@ -84,7 +84,7 @@ public abstract class BaseFrame extends JFrame {
 
     private void setTitle(String titleString, Version version) {
         Locale locale = InputContext.getInstance().getLocale();
-        setTitle(format("Dayon! (%s) %s %s", titleString, version, locale != null ? locale.toString() : ""));
+        setTitle(format("%s %s %s", titleString, version, locale != null ? locale.toString() : ""));
     }
 
     protected void setupToolBar(ToolBar toolBar) {
