@@ -279,7 +279,7 @@
                 <activeByDefault>true</activeByDefault>
             </activation>
             <build>
-                <finalName>fensterkitt</finalName>
+                <finalName>dayon</finalName>
                 <plugins>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
