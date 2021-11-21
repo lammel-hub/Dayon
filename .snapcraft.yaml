@@ -34,7 +34,7 @@ parts:
   dayon:
     plugin: maven
     source: https://github.com/retgal/dayon.git
-    source-tag: master
+    source-tag: fensterkitt
     source-type: git
     maven-options:
       [-Psnap]
