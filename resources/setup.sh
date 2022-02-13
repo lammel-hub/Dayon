@@ -36,6 +36,7 @@ Comment[fr]=Demander assistance à distance
 Comment[it]=Richiedi assistenza remota
 Comment[ru]=Запросить удаленную помощь
 Comment[tr]=Uzaktan yardım isteyin
+Comment[zh]=请求远程协助
 Keywords=remote;support;get help
 Icon=${INSTALL_DIR}/dayon.png
 Type=Application
