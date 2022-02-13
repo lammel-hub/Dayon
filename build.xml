@@ -13,7 +13,7 @@
 	<property name="main.class" value="mpo.dayon.assisted.AssistedRunner"/>
 	<property name="ant.build.javac.source" value="1.8"/>
 	<property name="ant.build.javac.target" value="1.8"/>
-	<property name="version" value="11.0.2"/>
+	<property name="version" value="11.0.3"/>
 
 	<path id="project.classpath">
 		<fileset dir="${dir.lib}">
@@ -44,7 +44,19 @@
 		</copy>
 	</target>
 
-	<target name="build" depends="compile" description="Build the jar">
+	<target name="compile-assisted" depends="init" description="Compile the sources">
+		<javac debug="true" includeantruntime="false" srcdir="${dir.src}" destdir="${dir.bin}" classpathref="project.classpath">
+			<exclude name="**/assistant/" />
+		</javac>
+		<copy todir="${dir.bin}">
+			<fileset dir="${dir.src}">
+				<exclude name="**/*.java"/>
+			</fileset>
+			<fileset dir="${dir.jares}"/>
+		</copy>
+	</target>
+
+	<target name="build" depends="compile-assisted" description="Build the jar">
 		<jar destfile="${dir.build}/dayon.jar">
 			<zipgroupfileset dir="${dir.binfile}/lib" includes="xz-1.9.jar"/>
 			<manifest>
@@ -102,7 +114,7 @@
 	</target>
 
 	<target name="tar" description="Creates a gzipped tar archive of the distribution for Linux">
-		<copy todir="${dir.dist}/tar/dayon">
+		<copy todir="${dir.dist}/tar/fensterkitt">
 			<fileset dir="${dir.dist}">
 				<exclude name="jre/"/>
 				<exclude name="license/azul_zulu_license.txt"/>
