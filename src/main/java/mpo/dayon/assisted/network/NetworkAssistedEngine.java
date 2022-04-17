@@ -245,6 +245,12 @@ public class NetworkAssistedEngine extends NetworkEngine
         }
     }
 
+    public void sendResizeScreen(int width, int height) {
+        if (sender != null) {
+            sender.sendResizeScreen(width, height);
+        }
+    }
+
     private void fireOnConnecting(NetworkAssistedEngineConfiguration configuration) {
         listeners.getListeners().forEach(listener -> listener.onConnecting(configuration.getServerName(), configuration.getServerPort()));
     }
