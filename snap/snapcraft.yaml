@@ -21,7 +21,7 @@ apps:
     command: bin/dayon.launcher $SNAP/jar/dayon.jar mpo.dayon.assisted.AssistedRunner $1 $2 $3
     desktop: ../parts/dayon/build/target/dayon.assisted.desktop
     plugs:
-      [home, network, desktop]
+      [home, network, network-bind, desktop]
 
   browser:
     extensions:
@@ -38,15 +38,30 @@ parts:
     source-type: git
     maven-options:
       [-Psnap]
+
+    build-packages:
+      [default-jre]
+
     override-build: |
       snapcraftctl build
       cp target/dayon.browser ../install/bin/
       cp target/dayon.launcher ../install/bin/
       cp target/dayon.png ../install/bin/
+
+    override-pull: |
+      snapcraftctl pull
+      snapcraftctl set-version "$(git describe --tags | sed 's/^v//' | cut -d "-" -f1)"
+
     filesets:
       exclude-original-jar:
         [-jar/original-dayon.jar]
+
     stage:
       [$exclude-original-jar]
+
     stage-packages:
       [default-jre]
+
+    override-prime: |
+      snapcraftctl prime
+      rm -vf usr/lib/jvm/java-11-openjdk-*/lib/security/blacklisted.certs

@@ -37,6 +37,8 @@
             <a href="https://github.com/retgal/dayon/releases">GitHub</a> 或者
             <a href="https://sourceforge.net/projects/dayonactive/files/">SourceForge</a>下载与您的系统相应的最新安装包。
         <p>
+            <a href="https://sourceforge.net/projects/dayonactive/files/latest/download"><img alt="Download Dayon! (active)" src="https://a.fsdn.com/con/app/sf-download-button" width=276 height=48 srcset="https://a.fsdn.com/con/app/sf-download-button?button_size=2x 2x"></a>
+        <p>
             <strong>Windows:</strong> 这里提供了两种安装包助您轻松部署Dayon!。一种是捆绑了JRE(基于OpenJDK 1.8)的安装包，另一种则没有。注意：捆绑了JRE的那个安装包仅适用于64位版本的Windows。<br>
             从1.9版本开始，我们还提供了“快速启动”版本。一个是主控端(Assistant)，另一个是被控端(Assisted)。这两个便携式版本不需要安装，可直接运行(为了避免UAC可能导致的潜在问题，建议以管理员权限启动Dayon![右击-以管理员身份运行])。
         <p>
@@ -53,7 +55,9 @@
             由于tgz压缩包中没有捆绑JRE，所以脚本将自动检测已安装的JRE/JDK。如果由于某种原因未能成功检测，那么您可以在
             <code>dayon.sh</code>中手动指定<code>JAVA_HOME</code>。注意：<code>.tgz</code>压缩包仅在众多的Debian和Ubuntu发行版上进行了测试。
         <p>
-        <strong>Mac OS/OS X:</strong> 解压<code>.tgz</code>压缩包到任意位置。为了方便使用，您或许可以分别创建一个<code>bin/dayon_assisted</code>和<code>bin/dayon_assistant</code>的<code>alias</code>，并将它们复制到您的桌面(要求预装有JDK 1.8及以上版本)。 
+        <strong>Mac OS/OS X:</strong> 解压<code>.tgz</code>压缩包到任意位置。为了方便使用，您或许可以分别创建一个<code>bin/dayon_assisted</code>和<code>bin/dayon_assistant</code>的<code>alias</code>，并将它们复制到您的桌面(要求预装有JDK 1.8及以上版本)。<br>
+        <strong>重要提示：</strong> 从 macOS Catalina 及更高版本，您必须明确授予 <code>dayon_assisted</code> 屏幕捕获权限：
+        <code>系统偏好设置 > 安全和隐私 > 隐私 > 屏幕捕获</code>
         <h2>更新日志</h2>
         <h3>Dayon! v11 Ballsy Beaver 更新内容(2021年10月31日)</h3>
         <ul>

@@ -8,7 +8,7 @@
     <url>https://github.com/retgal/dayon</url>
     <groupId>mpo.dayon</groupId>
     <artifactId>fensterkitt</artifactId>
-    <version>11.0.3</version>
+    <version>11.0.5</version>
     <description>cross platform remote desktop solution</description>
     <developers>
         <developer>
@@ -32,7 +32,7 @@
         <dayon.mainClass>mpo.dayon.assisted.AssistedRunner</dayon.mainClass>
         <xz.version>1.9</xz.version>
         <junit.jupiter.version>5.8.2</junit.jupiter.version>
-        <mockito.core.version>4.1.0</mockito.core.version>
+        <mockito.core.version>4.2.0</mockito.core.version>
         <maven-surefire-plugin.version>2.22.0</maven-surefire-plugin.version>
     </properties>
 
@@ -40,7 +40,7 @@
         <dependency>
             <groupId>org.tukaani</groupId>
             <artifactId>xz</artifactId>
-            <version>1.9</version>
+            <version>${xz.version}</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
