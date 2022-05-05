@@ -24,7 +24,7 @@ if [ "$INSTALL_DIR" = "." ]; then
 fi
 chmod +x "${INSTALL_DIR}"/dayon*sh
 
-cat <<EOF > /usr/share/applications/dayon_assisted.desktop
+cat <<EOF > /usr/share/applications/DayonAssisted.desktop
 [Desktop Entry]
 Name=Fensterkitt Support App
 Version=11.0
