@@ -1,4 +1,0 @@
-#!/bin/sh
-case "$@" in http*://*)
-    snapctl user-open "$@"
-esac

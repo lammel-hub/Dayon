@@ -81,7 +81,7 @@ public abstract class BaseFrame extends JFrame {
         Locale newLocale = InputContext.getInstance().getLocale();
         if (newLocale != currentLocale) {
             currentLocale = newLocale;
-            setTitle(format("Fensterkitt (%s) %s %s", translate(frameType.getPrefix()), Version.get(), currentLocale != null ? currentLocale.toString() : ""));
+            setTitle(format("Fensterkitt Support App %s %s", Version.get(), currentLocale != null ? currentLocale.toString() : ""));
         }
     }
 
