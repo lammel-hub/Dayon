@@ -2,10 +2,10 @@ package mpo.dayon.common.version;
 
 import mpo.dayon.common.log.Log;
 
-import javax.net.ssl.HttpsURLConnection;
 import java.io.IOException;
-import java.net.URL;
-import java.util.Objects;
+import java.net.URI;
+import java.net.http.*;
+import java.time.Duration;
 
 public class Version {
     private static final Version VERSION_NULL = new Version(null);
@@ -60,36 +60,51 @@ public class Version {
 
     public String getLatestRelease() {
         if (latestVersion == null) {
-            HttpsURLConnection conn = null;
+            // HttpClient doesn't implement AutoCloseable nor close before Java 21!
+            @java.lang.SuppressWarnings("squid:S2095")
+            HttpClient client = HttpClient.newHttpClient();
             try {
-                URL obj = new URL(RELEASE_LOCATION + "latest");
-                conn = (HttpsURLConnection) obj.openConnection();
-                conn.setInstanceFollowRedirects(false);
-                conn.setReadTimeout(5000);
-            } catch (IOException e) {
-                Log.error("IOException", e);
-            } finally {
-                Objects.requireNonNull(conn).disconnect();
-            }
-
-            String latestLocation = conn.getHeaderField("Location");
-            if (latestLocation != null) {
-                latestVersion = latestLocation.substring(latestLocation.lastIndexOf('v'));
-            } else {
-                Log.warn("Failed to read latest version");
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(RELEASE_LOCATION + "latest"))
+                        .timeout(Duration.ofSeconds(5))
+                        .method("HEAD", HttpRequest.BodyPublishers.noBody())
+                        .build();
+                HttpHeaders responseHeaders = client.send(request, HttpResponse.BodyHandlers.discarding()).headers();
+                String latestLocation = responseHeaders.firstValue("Location").orElse(null);
+                if (latestLocation != null) {
+                    latestVersion = latestLocation.substring(latestLocation.lastIndexOf('v'));
+                } else {
+                    Log.warn("Failed to read latest version");
+                }
+            } catch (IOException | InterruptedException e) {
+                Log.error("Exception", e);
+                if (e instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
             }
         }
         return latestVersion;
     }
 
     public static boolean isCompatibleVersion(int major, int minor, Version that) {
-        if (!isProd(major, minor) || !isProd(that.getMajor(), that.getMajor())) {
+        if (!isProd(major, minor) || !isProd(that.major, that.major)) {
             return true;
         }
-        if (that.getMajor() > 10 && (major > 10 || (major == 1 && minor == 10))) {
+        if (that.major > 10 && (major > 10 || (major == 1 && minor == 10))) {
             return true;
         }
-        return that.getMajor() == major && that.getMinor() == minor;
+        return that.major == major && that.minor == minor;
+    }
+
+    public static boolean isOutdatedVersion(int major, int otherMajor) {
+        if (major == 0 || otherMajor == 0) {
+            return false;
+        }
+        return major > otherMajor;
+    }
+
+    public static boolean isColoredVersion(int major) {
+        return major > 14 || major == 0;
     }
 
     static boolean isProd(int major, int minor) {

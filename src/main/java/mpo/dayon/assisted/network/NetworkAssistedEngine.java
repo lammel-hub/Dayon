@@ -1,13 +1,12 @@
 package mpo.dayon.assisted.network;
 
-import mpo.dayon.assisted.compressor.CompressorEngineConfiguration;
-import mpo.dayon.assisted.compressor.CompressorEngineListener;
+import mpo.dayon.common.compressor.CompressorEngineConfiguration;
+import mpo.dayon.common.compressor.CompressorEngineListener;
 import mpo.dayon.assisted.control.NetworkControlMessageHandler;
 import mpo.dayon.assisted.mouse.MouseEngineListener;
 import mpo.dayon.common.buffer.MemByteBuffer;
-import mpo.dayon.common.capture.Capture;
 import mpo.dayon.common.concurrent.RunnableEx;
-import mpo.dayon.common.configuration.Configurable;
+import mpo.dayon.common.configuration.ReConfigurable;
 import mpo.dayon.common.error.FatalErrorHandler;
 import mpo.dayon.common.event.Listeners;
 import mpo.dayon.common.log.Log;
@@ -19,6 +18,7 @@ import mpo.dayon.common.squeeze.CompressionMethod;
 import javax.net.ssl.*;
 import java.awt.*;
 import java.awt.datatransfer.ClipboardOwner;
+import java.awt.datatransfer.DataFlavor;
 import java.io.*;
 import java.net.InetSocketAddress;
 import java.net.SocketTimeoutException;
@@ -30,7 +30,7 @@ import java.security.cert.CertificateEncodingException;
 import static java.lang.String.format;
 
 public class NetworkAssistedEngine extends NetworkEngine
-        implements Configurable<NetworkAssistedEngineConfiguration>, CompressorEngineListener, MouseEngineListener {
+        implements ReConfigurable<NetworkAssistedEngineConfiguration>, CompressorEngineListener, MouseEngineListener {
     private NetworkAssistedEngineConfiguration configuration;
 
     private final NetworkCaptureConfigurationMessageHandler captureConfigurationHandler;
@@ -41,18 +41,24 @@ public class NetworkAssistedEngine extends NetworkEngine
 
     private final NetworkClipboardRequestMessageHandler clipboardRequestHandler;
 
+    private final NetworkScreenshotRequestMessageHandler screenshotRequestHandler;
+
     private final ClipboardOwner clipboardOwner;
 
     private final Listeners<NetworkAssistedEngineListener> listeners = new Listeners<>();
 
+    private final char osId = System.getProperty("os.name").toLowerCase().charAt(0);
+
     public NetworkAssistedEngine(NetworkCaptureConfigurationMessageHandler captureConfigurationHandler,
                                  NetworkCompressorConfigurationMessageHandler compressorConfigurationHandler,
                                  NetworkControlMessageHandler controlHandler,
-                                 NetworkClipboardRequestMessageHandler clipboardRequestHandler, ClipboardOwner clipboardOwner) {
+                                 NetworkClipboardRequestMessageHandler clipboardRequestHandler,
+                                 NetworkScreenshotRequestMessageHandler screenshotRequestHandler, ClipboardOwner clipboardOwner) {
         this.captureConfigurationHandler = captureConfigurationHandler;
         this.compressorConfigurationHandler = compressorConfigurationHandler;
         this.controlHandler = controlHandler;
         this.clipboardRequestHandler = clipboardRequestHandler;
+        this.screenshotRequestHandler = screenshotRequestHandler;
         this.clipboardOwner = clipboardOwner;
     }
 
@@ -82,6 +88,12 @@ public class NetworkAssistedEngine extends NetworkEngine
         this.configuration = configuration;
     }
 
+    @Override
+    public void reconfigure(NetworkAssistedEngineConfiguration configuration) {
+        this.configuration = configuration;
+        fireOnReconfigured(configuration);
+    }
+
     public void addListener(NetworkAssistedEngineListener listener) {
         listeners.add(listener);
     }
@@ -108,24 +120,36 @@ public class NetworkAssistedEngine extends NetworkEngine
         SSLSocketFactory ssf = CustomTrustManager.initSslContext(false).getSocketFactory();
         connection = (SSLSocket) ssf.createSocket();
         connection.setNeedClientAuth(true);
+        // grace period of 15 seconds for the assistant to accept the connection
+        connection.setSoTimeout(15000);
+        // abort the connection attempt after 5 seconds if the assistant cannot be reached
         connection.connect(new InetSocketAddress(configuration.getServerName(), configuration.getServerPort()), 5000);
-        initInputStream();
+        // once connected, remain connected until cancelled
+        connection.setSoTimeout(0);
+        createInputStream();
+        runReceiversIfNecessary();
+        receiver.start();
 
+        initSender(1);
+        // The first message being sent to the assistant (e.g. version identification, locale and OS).
+        sender.sendHello(osId);
+
+        fileConnection = (SSLSocket) ssf.createSocket(configuration.getServerName(), configuration.getServerPort());
+        initFileSender();
+        createFileInputStream();
+        fileReceiver.start();
+        fireOnConnected(CustomTrustManager.calculateFingerprints(connection.getSession(), this.getClass().getSimpleName()));
+    }
+
+    private void createFileInputStream() throws IOException {
+        fileIn = new ObjectInputStream(new BufferedInputStream(fileConnection.getInputStream()));
+    }
+
+    private void runReceiversIfNecessary() {
         if (receiver == null) {
             Log.info("Getting the receivers ready");
             runReceivers();
         }
-        receiver.start();
-
-        initSender(1);
-        // The first message being sent to the assistant (e.g. version identification).
-        sender.sendHello();
-
-        fileConnection = (SSLSocket) ssf.createSocket(configuration.getServerName(), configuration.getServerPort());
-        initFileSender();
-        fileIn = new ObjectInputStream(new BufferedInputStream(fileConnection.getInputStream()));
-        fileReceiver.start();
-        fireOnConnected(CustomTrustManager.calculateFingerprints(connection.getSession(), this.getClass().getSimpleName()));
     }
 
     /**
@@ -149,44 +173,43 @@ public class NetworkAssistedEngine extends NetworkEngine
 
                 switch (type) {
                     case CAPTURE_CONFIGURATION:
-                        final NetworkCaptureConfigurationMessage captureConfigurationMessage = NetworkCaptureConfigurationMessage.unmarshall(in);
-                        captureConfigurationHandler.handleConfiguration(captureConfigurationMessage);
+                        captureConfigurationHandler.handleConfiguration(NetworkCaptureConfigurationMessage.unmarshall(in));
                         break;
-
                     case COMPRESSOR_CONFIGURATION:
-                        final NetworkCompressorConfigurationMessage compressorConfigurationMessage = NetworkCompressorConfigurationMessage.unmarshall(in);
-                        compressorConfigurationHandler.handleConfiguration(compressorConfigurationMessage);
+                        compressorConfigurationHandler.handleConfiguration(NetworkCompressorConfigurationMessage.unmarshall(in));
                         break;
-
                     case MOUSE_CONTROL:
-                        final NetworkMouseControlMessage mouseControlMessage = NetworkMouseControlMessage.unmarshall(in);
-                        controlHandler.handleMessage(mouseControlMessage);
+                        controlHandler.handleMessage(NetworkMouseControlMessage.unmarshall(in));
                         break;
-
                     case KEY_CONTROL:
-                        final NetworkKeyControlMessage keyControlMessage = NetworkKeyControlMessage.unmarshall(in);
-                        controlHandler.handleMessage(keyControlMessage);
+                        controlHandler.handleMessage(NetworkKeyControlMessage.unmarshall(in));
                         break;
-
                     case CLIPBOARD_REQUEST:
                         clipboardRequestHandler.handleClipboardRequest();
                         break;
-
                     case CLIPBOARD_TEXT:
-                        final NetworkClipboardTextMessage clipboardTextMessage = NetworkClipboardTextMessage.unmarshall(in);
+                        var clipboardTextMessage = NetworkClipboardTextMessage.unmarshall(in);
                         setClipboardContents(clipboardTextMessage.getText(), clipboardOwner);
                         sender.ping();
                         break;
-
+                    case CLIPBOARD_GRAPHIC:
+                        var clipboardGraphicMessage = NetworkClipboardGraphicMessage.unmarshall(in);
+                        setClipboardContents(clipboardGraphicMessage.getGraphic().getTransferData(DataFlavor.imageFlavor), clipboardOwner);
+                        sender.ping();
+                        break;
+                    case SCREENSHOT_REQUEST:
+                        screenshotRequestHandler.handleScreenshotRequest();
+                        break;
                     case PING:
                         break;
-
                     default:
                         throw new IllegalArgumentException(format(UNSUPPORTED_TYPE, type));
                 }
             }
         } catch (IOException ex) {
             handleIOException(ex);
+        } catch (ClassNotFoundException e) {
+            throw new IllegalArgumentException(e);
         } finally {
             closeConnections();
             fireOnDisconnecting();
@@ -208,10 +231,10 @@ public class NetworkAssistedEngine extends NetworkEngine
      * capture.
      */
     @Override
-    public void onCompressed(Capture capture, CompressionMethod compressionMethod, CompressorEngineConfiguration compressionConfiguration,
+    public void onCompressed(int captureId, CompressionMethod compressionMethod, CompressorEngineConfiguration compressionConfiguration,
                              MemByteBuffer compressed) {
         if (sender != null) {
-            sender.sendCapture(capture, compressionMethod, compressionConfiguration, compressed);
+            sender.sendCapture(captureId, compressionMethod, compressionConfiguration, compressed);
         }
     }
 
@@ -268,6 +291,10 @@ public class NetworkAssistedEngine extends NetworkEngine
     @Override
     protected void fireOnIOError(IOException ex) {
         listeners.getListeners().forEach(listener -> listener.onIOError(ex));
+    }
+
+    private void fireOnReconfigured(NetworkAssistedEngineConfiguration configuration) {
+        listeners.getListeners().forEach(listener -> listener.onReconfigured(configuration));
     }
 
 }

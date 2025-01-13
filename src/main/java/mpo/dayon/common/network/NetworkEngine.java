@@ -1,21 +1,20 @@
 package mpo.dayon.common.network;
 
 import mpo.dayon.common.log.Log;
-import mpo.dayon.common.network.message.NetworkClipboardFilesHelper;
-import mpo.dayon.common.network.message.NetworkClipboardFilesMessage;
-import mpo.dayon.common.network.message.NetworkMessage;
-import mpo.dayon.common.network.message.NetworkMessageType;
+import mpo.dayon.common.network.message.*;
 
 import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.SSLSocket;
 import java.awt.*;
 import java.awt.datatransfer.ClipboardOwner;
 import java.awt.datatransfer.StringSelection;
+import java.awt.image.BufferedImage;
 import java.io.*;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static java.lang.String.format;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static mpo.dayon.common.network.message.NetworkMessageType.CLIPBOARD_FILES;
 import static mpo.dayon.common.network.message.NetworkMessageType.PING;
 import static mpo.dayon.common.utils.SystemUtilities.*;
@@ -28,6 +27,8 @@ import static mpo.dayon.common.utils.SystemUtilities.*;
 public abstract class NetworkEngine {
 
     protected static final String UNSUPPORTED_TYPE = "Unsupported message type [%s]!";
+
+    private static final String CLIPBOARD_DEBUG = "setClipboardContents %s";
 
     protected NetworkSender sender; // out
 
@@ -56,7 +57,17 @@ public abstract class NetworkEngine {
      */
     public void sendClipboardText(String text) {
         if (sender != null) {
-            sender.sendClipboardContentText(text, text.getBytes().length);
+            String utf8Encoded = UTF_8.decode(UTF_8.encode(text)).toString();
+            sender.sendClipboardContentText(utf8Encoded, utf8Encoded.getBytes().length);
+        }
+    }
+
+    /**
+     * Might be blocking if the sender queue is full (!)
+     */
+    public void sendClipboardGraphic(TransferableImage image) {
+        if (sender != null) {
+            sender.sendClipboardContentGraphic(image);
         }
     }
 
@@ -69,19 +80,23 @@ public abstract class NetworkEngine {
         }
     }
 
-    protected void setClipboardContents(String string, ClipboardOwner clipboardOwner) {
-        Log.debug("setClipboardContents %s", () -> string);
+    protected static void setClipboardContents(String string, ClipboardOwner clipboardOwner) {
+        Log.debug(CLIPBOARD_DEBUG, () -> string);
         StringSelection stringSelection = new StringSelection(string);
         Toolkit.getDefaultToolkit().getSystemClipboard().setContents(stringSelection, clipboardOwner);
     }
 
-    private void setClipboardContents(List<File> files, ClipboardOwner clipboardOwner) {
-        Log.debug("setClipboardContents %s", () -> String.valueOf(files));
-        TransferableFiles transferableFiles = new TransferableFiles(files);
-        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(transferableFiles, clipboardOwner);
+    public static void setClipboardContents(BufferedImage image, ClipboardOwner clipboardOwner) {
+        Log.debug(CLIPBOARD_DEBUG, () -> format("%dx%d", image.getWidth(), image.getHeight()));
+        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new TransferableImage(image), clipboardOwner);
     }
 
-    private NetworkClipboardFilesHelper handleNetworkClipboardFilesHelper(NetworkClipboardFilesHelper filesHelper, ClipboardOwner clipboardOwner) {
+    private static void setClipboardContents(List<File> files, ClipboardOwner clipboardOwner) {
+        Log.debug(CLIPBOARD_DEBUG, () -> String.valueOf(files));
+        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new TransferableFiles(files), clipboardOwner);
+    }
+
+    private static NetworkClipboardFilesHelper handleNetworkClipboardFilesHelper(NetworkClipboardFilesHelper filesHelper, ClipboardOwner clipboardOwner) {
         if (filesHelper.isDone()) {
             setClipboardContents(filesHelper.getFiles(), clipboardOwner);
             return new NetworkClipboardFilesHelper();
@@ -112,6 +127,9 @@ public abstract class NetworkEngine {
                 NetworkMessage.unmarshallMagicNumber(fileIn); // blocking read (!)
                 type = NetworkMessage.unmarshallEnum(fileIn, NetworkMessageType.class);
                 Log.debug("Received " + type.name());
+                if (!type.equals(CLIPBOARD_FILES) && !type.equals(PING)) {
+                    throw new IllegalArgumentException(format(UNSUPPORTED_TYPE, type));
+                }
             } else {
                 type = CLIPBOARD_FILES;
             }
@@ -122,8 +140,6 @@ public abstract class NetworkEngine {
                 if (filesHelper.isDone()) {
                     fireOnClipboardReceived();
                 }
-            } else if (!type.equals(PING)) {
-                throw new IllegalArgumentException(format(UNSUPPORTED_TYPE, type));
             }
         }
     }
@@ -146,7 +162,7 @@ public abstract class NetworkEngine {
         cancelling.set(false);
     }
 
-    protected void initInputStream() throws IOException {
+    protected void createInputStream() throws IOException {
         try {
             in = new ObjectInputStream(new BufferedInputStream(connection.getInputStream()));
         } catch (StreamCorruptedException ex) {

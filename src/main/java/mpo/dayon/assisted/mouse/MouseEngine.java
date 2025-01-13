@@ -42,18 +42,21 @@ public class MouseEngine {
 
         //noinspection InfiniteLoopStatement
         while (true) {
-            final Point current = MouseInfo.getPointerInfo().getLocation();
-            ++captureCount;
-            if (!current.equals(previous) && fireOnLocationUpdated(current)) {
-                previous = current;
+            final PointerInfo pointerInfo = MouseInfo.getPointerInfo();
+            // can happen if windows the ctrl + alt + delete screen is active
+            if (pointerInfo != null) {
+                final Point current = pointerInfo.getLocation();
+                if (!current.equals(previous) && fireOnLocationUpdated(current)) {
+                    previous = current;
+                }
             }
+            ++captureCount;
             captureCount += syncOnTick(start, captureCount);
         }
     }
 
     private static int syncOnTick(final long start, final int captureCount) throws InterruptedException {
         int delayedCaptureCount = 0;
-
         while (true) {
             final long captureMaxEnd = start + (captureCount + delayedCaptureCount) * 50L;
             final long capturePause = captureMaxEnd - System.currentTimeMillis();
@@ -61,10 +64,9 @@ public class MouseEngine {
                 ++delayedCaptureCount;
             } else if (capturePause > 0) {
                 Thread.sleep(capturePause);
-                break;
+                return delayedCaptureCount;
             }
         }
-        return delayedCaptureCount;
     }
 
     private boolean fireOnLocationUpdated(Point location) {

@@ -32,9 +32,9 @@ I also moved the code base to GitHub, where it can easier be maintained.
 
 ## Releases
 
-The ![latest version](https://github.com/RetGal/Dayon/releases) is v13.0 (Beard Butter) - released more than ten years after the initial release.
+The ![latest version](https://github.com/RetGal/Dayon/releases/latest) is v15.0.0 (Dolly Double) - released more than ten years after the initial release.
 
-This version offers improved security through individually created certificates with fingerprints that can be compared. However, a compatibility mode is available for connection with older versions.
+This is the first version in which the remote desktop can also be transmitted in colour - in addition to the bandwidth-saving greyscales. For a complete list of changes see: [Changelog](https://retgal.github.io/Dayon/download.html#change-log)
 
 The app is available directly from the [Microsoft Store](https://apps.microsoft.com/detail/9PBM5KW0C790):
 

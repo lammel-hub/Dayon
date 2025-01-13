@@ -3,12 +3,11 @@ package mpo.dayon.assisted.utils;
 import java.awt.*;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
+import java.nio.ByteBuffer;
 
 import mpo.dayon.common.capture.Gray8Bits;
-import mpo.dayon.common.log.Log;
 
 import static java.lang.Math.min;
-import static java.lang.String.format;
 import static java.util.Arrays.stream;
 
 public final class ScreenUtilities {
@@ -35,7 +34,7 @@ public final class ScreenUtilities {
     static {
         NUMBER_OF_SCREENS = countScreens();
         DEFAULT_SIZE = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().getDefaultConfiguration().getBounds();
-        COMBINED_SCREEN_SIZE = new Rectangle(getCombinedScreenSize());
+        COMBINED_SCREEN_SIZE = getCombinedScreenSize();
         sharedScreenSize = shareAllScreens ? COMBINED_SCREEN_SIZE : DEFAULT_SIZE;
         rgb = new int[sharedScreenSize.height * sharedScreenSize.width];
         gray = new byte[rgb.length];
@@ -46,15 +45,17 @@ public final class ScreenUtilities {
         }
     }
 
-    public static synchronized void setShareAllScreens(boolean doShareAllScreens) {
-        shareAllScreens = doShareAllScreens;
-        sharedScreenSize = doShareAllScreens ? COMBINED_SCREEN_SIZE : DEFAULT_SIZE;
-        rgb = new int[sharedScreenSize.height * sharedScreenSize.width];
-        gray = new byte[rgb.length];
+    public static void setShareAllScreens(boolean doShareAllScreens) {
+        synchronized (ScreenUtilities.class) {
+            shareAllScreens = doShareAllScreens;
+            sharedScreenSize = doShareAllScreens ? COMBINED_SCREEN_SIZE : DEFAULT_SIZE;
+            rgb = new int[sharedScreenSize.height * sharedScreenSize.width];
+            gray = new byte[rgb.length];
+        }
     }
 
     public static Rectangle getSharedScreenSize() {
-        return sharedScreenSize;
+        return new Rectangle(sharedScreenSize);
     }
 
     public static int getNumberOfScreens() {
@@ -76,26 +77,18 @@ public final class ScreenUtilities {
         return rgbToGray8(quantization, captureRGB(sharedScreenSize));
     }
 
-    private static int[] captureRGB(Rectangle bounds) {
-        BufferedImage image = ROBOT.createScreenCapture(bounds);
-        int imageHeight = image.getHeight();
-        int imageWidth = image.getWidth();
-        if (imageHeight != bounds.height || imageWidth != bounds.width) {
-            Log.warn(format("Image dimensions %sx%s != bound dimensions %sx%s", imageHeight, imageWidth, bounds.height, bounds.width));
-            imageHeight = min(image.getHeight(), bounds.height);
-            imageWidth = min(image.getWidth(), bounds.width);
-        }
-        int i = 0;
-        for (int yPos = bounds.y; yPos < imageHeight; yPos++) {
-            for (int xPos = bounds.x; xPos < imageWidth && i < rgb.length; xPos++) {
-                rgb[i++] = image.getRGB(xPos, yPos);
-            }
-        }
-        return rgb;
+    public static byte[] captureColors() {
+        final int[] ints = captureRGB(sharedScreenSize);
+        ByteBuffer bb = ByteBuffer.allocate(4 * ints.length);
+        bb.asIntBuffer().put(ints);
+        return bb.array();
     }
 
-    public static byte[] captureGray(Rectangle bounds, Gray8Bits quantization) {
-        return rgbToGray8(quantization, captureRGB(bounds));
+    private static int[] captureRGB(Rectangle bounds) {
+        BufferedImage image = ROBOT.createScreenCapture(bounds);
+        final int imageHeight = min(image.getHeight(), bounds.height);
+        final int imageWidth = min(image.getWidth(), bounds.width);
+        return image.getRGB(0, 0, imageWidth, imageHeight, null, 0, imageWidth);
     }
 
     private static byte[] rgbToGray8(Gray8Bits quantization, int[] rgb) {
@@ -104,21 +97,13 @@ public final class ScreenUtilities {
 
     private static byte[] doRgbToGray8(Gray8Bits quantization, int[] rgb) {
         final byte[] xLevels = grays[quantization.ordinal()];
-        int prevRgb = -1;
-        byte prevGray = -1;
-
-        for (int idx = 0; idx < rgb.length; idx++) {
+        final int length = rgb.length;
+        for (int idx = 0; idx < length; idx++) {
             final int pixel = rgb[idx];
-            if (pixel == prevRgb) {
-                gray[idx] = prevGray;
-                continue;
-            }
-            final int red = (pixel & 0x00FF0000) >> 16;
-            final int green_blue = pixel & 0x0000FFFF;
-            final int level = (red_levels[red] + green_blue_levels[green_blue]) >> 7;
+            final int red = (pixel >> 16) & 0xFF;
+            final int greenBlue = pixel & 0xFFFF;
+            final int level = (red_levels[red] + green_blue_levels[greenBlue]) >> 7;
             gray[idx] = xLevels[level];
-            prevRgb = pixel;
-            prevGray = gray[idx];
         }
         return gray;
     }
@@ -133,7 +118,7 @@ public final class ScreenUtilities {
         for (int red = 0; red < 256; red++) {
             red_levels[red] = (short) (128.0 * 0.212671 * red);
         }
-        green_blue_levels = new short[256 * 256];
+        green_blue_levels = new short[65536];
         for (int green = 0; green < 256; green++) {
             for (int blue = 0; blue < 256; blue++) {
                 green_blue_levels[(green << 8) + blue] = (short) ((128.0 * 0.715160 * green) + (128.0 * 0.072169 * blue));

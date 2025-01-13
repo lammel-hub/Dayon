@@ -28,9 +28,9 @@
         </div>
         <a href="sv_index.html">Home</a><br/>
         <a href="sv_quickstart.html">Quick Start</a><br/>
+        <a href="sv_settings.html">Settings</a><br/>
         <a href="sv_download.html">Download</a><br/>
         <a href="sv_support.html">Support</a><br/>
-        <a href="sv_feedback.html">Feedback</a><br/>
         <a href="sv_privacy.html">Privacy</a><br/>
         <a href="https://github.com/retgal/dayon">GitHub</a>
       </nav>
@@ -46,28 +46,17 @@
     <div id="menu">
       <a href="sv_index.html">Home</a>
       <a href="sv_quickstart.html">Quick Start</a>
+      <a href="sv_settings.html">Settings</a>
       <a href="sv_download.html">Download</a>
       <a href="sv_support.html">Support</a>
-      <a href="sv_feedback.html">Feedback</a>
       <a href="sv_privacy.html">Privacy</a>
       <a href="https://github.com/retgal/dayon">GitHub</a>
     </div>
     <div id="content">
       <h2>Support</h2>
       <p>
-        Posta dina frågor eller öppna ett nytt ärende på
-        <a href="https://github.com/retgal/dayon/issues">GitHub</a>.
+        Din feedback är mer än välkommen - posta dina frågor eller öppna ett nytt ärende på <a href="https://github.com/retgal/dayon/issues">GitHub</a>.
       </p>
-
-      <h3>Kända begränsningar</h3>
-      <ul>
-        <li>
-          Det finns idag inget sätt att skicka vissa tangentbordskombinationer till hjältagarens dator (t.ex. <code>Ctrl-Alt-Del</code>).
-        </li>
-        <li>
-          Det bästa är om hjälpgivarens och hjälptagarens tangentbord har samma språklayout. Vid användning av olika tangentbordslayouter så kan det leda till problem, särskilt vid inmatning av specialtecken. Vilken tangentbordslayout som används kan ses i titelraden för respektive dators applikation.
-        </li>
-      </ul>
 
       <h3>Dayon! Hemmafolder (Home Directory)</h3>
       <p>
@@ -83,31 +72,6 @@
         Hittills har problemet endast uppstått för enstaka pixlar under hårda stresstester. Visuellt har jag inte sett något allvarligt, men om allt går knas så kan du pröva att använda funktionen <code>Återställ skärmbild</code> som du hittar vid klick på (<strong>papperskorgsknappen</strong>). Det borde rensa all data i cachen och överföra en helt ny skärmbild. Annars får du pröva att starta om hjälptagaren.
       </p>
 
-      <h3>Mätare</h3>
-      <img src="stats_counters.jpg" alt="Dayon! Hjälpgivare : Mätare"/>
-      <p>
-        Statusfältet i nederkanten av hjälpgivarens fönster visar ett antal mätare.
-      </p>
-      <ol>
-        <li>Bandbreddsanvändning</li>
-        <li>
-          Kompressionsgrad: hur många gånger urpsprungsbilden (dess förändringar) har komprimerats
-        </li>
-        <li>
-          Antal mottagna sektioner: antalet sektioner som överförts och träffprocent för cache.
-        </li>
-        <li>
-          Antal skippade skärmbilder: antalet avläsningar som har skippats pga. för högt värde för CPUn (dvs för lågt satt tick). För att minska antalet så behöver du öka tick för att inte avläsa skärmen lika ofta.
-        </li>
-
-        <li>
-          Antal sammanfogade skärmbilder: antalet avläsningar som har sammanfogats innan de överförts. Detta beror på att tick satts för lågt för den valda komprimeringsmetoden. För att minska värdet så behöver du öka tick för att inte avläsa skärmen lika ofta eller byta till en snabbare komprimeringsmetod.
-        </li>
-
-        <li>Använt minne av totalt tillgängligt</li>
-        <li>Sessionslängd för aktiv anslutning eller den senaste anslutningen</li>
-      </ol>
-
       <h3>Fingeravtryck för certifikat</h3>
       <p>
         För att förhindra man-in-the-middle attacker, så visas fingeravtrycket för på datorers certifikat.
@@ -118,9 +82,9 @@
         <img src="dayon_fingerprints.jpg" alt="Fingeravtryck"/>
       </p>
       <p>
-        <strong>Varning</strong>: För att möjliggöra anslutningsmöjlighet till gamla versioner, så måste Kompatibelt läge för tidigare versioner
-        <img src="https://raw.githubusercontent.com/RetGal/Dayon/master/src/main/resources/images/compatibility.png"
-             alt="compatibility"/> vara aktiverat.
+        <strong>Varning:</strong> För att möjliggöra anslutningsmöjlighet till gamla versioner (före version 13) , så måste Kompatibelt läge <img src="https://raw.githubusercontent.com/RetGal/Dayon/master/src/main/resources/images/100/compatibility.png"
+             alt="compatibility"/> vara aktiverat.<br/>
+        Detta är endast en tillfällig lösning, uppdatera dina klientinstallationer så snart som möjligt.
       </p>
 
       <h3>Hur anslutningar sker</h3>

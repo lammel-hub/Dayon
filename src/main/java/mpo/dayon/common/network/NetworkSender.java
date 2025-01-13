@@ -1,6 +1,7 @@
 package mpo.dayon.common.network;
 
 import java.awt.Point;
+import java.awt.im.InputContext;
 import java.io.File;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
@@ -15,9 +16,8 @@ import java.util.concurrent.TimeUnit;
 import mpo.dayon.common.network.message.*;
 
 import mpo.dayon.common.capture.CaptureEngineConfiguration;
-import mpo.dayon.assisted.compressor.CompressorEngineConfiguration;
+import mpo.dayon.common.compressor.CompressorEngineConfiguration;
 import mpo.dayon.common.buffer.MemByteBuffer;
-import mpo.dayon.common.capture.Capture;
 import mpo.dayon.common.concurrent.DefaultThreadFactoryEx;
 import mpo.dayon.common.concurrent.Executable;
 import mpo.dayon.common.error.FatalErrorHandler;
@@ -31,7 +31,7 @@ public class NetworkSender {
 
     private Semaphore semaphore;
 
-    public NetworkSender(ObjectOutputStream out) {
+    NetworkSender(ObjectOutputStream out) {
         this.out = out;
     }
 
@@ -59,9 +59,10 @@ public class NetworkSender {
      * <p/>
      * Assisted 2 assistant.
      */
-    public void sendHello() {
+    public void sendHello(char osId) {
         final Version version = Version.get();
-        send(true, new NetworkHelloMessage(version.getMajor(), version.getMinor()));
+        final String inputLocale = InputContext.getInstance().getLocale().toString();
+        send(true, new NetworkHelloMessage(version.getMajor(), version.getMinor(), osId, inputLocale));
     }
 
     /**
@@ -69,9 +70,9 @@ public class NetworkSender {
      * <p/>
      * Assisted 2 assistant.
      */
-    public void sendCapture(Capture capture, CompressionMethod compressionMethod, CompressorEngineConfiguration compressionConfiguration,
+    public void sendCapture(int captureId, CompressionMethod compressionMethod, CompressorEngineConfiguration compressionConfiguration,
                             MemByteBuffer compressed) {
-        send(true, new NetworkCaptureMessage(capture.getId(), compressionMethod, compressionConfiguration, compressed));
+        send(true, new NetworkCaptureMessage(captureId, compressionMethod, compressionConfiguration, compressed));
     }
 
     /**
@@ -98,8 +99,8 @@ public class NetworkSender {
      * <p/>
      * Assistant 2 assisted.
      */
-    public void sendCaptureConfiguration(CaptureEngineConfiguration configuration) {
-        send(true, new NetworkCaptureConfigurationMessage(configuration));
+    public void sendCaptureConfiguration(CaptureEngineConfiguration configuration, boolean monochromePeer) {
+        send(true, new NetworkCaptureConfigurationMessage(configuration, monochromePeer));
     }
 
     /**
@@ -141,11 +142,10 @@ public class NetworkSender {
     /**
      * Might block (!)
      * <p/>
-     * Assistant 2 assisted or vice versa.
+     * Assistant 2 assisted .
      */
-    public void sendClipboardContentText(String text, int size) {
-        final NetworkMessage message = new NetworkClipboardTextMessage(text, size);
-        send(true, message);
+    public void sendScreenshotRequest() {
+        send(true, new NetworkScreenshotRequestMessage());
     }
 
     /**
@@ -153,7 +153,25 @@ public class NetworkSender {
      * <p/>
      * Assistant 2 assisted or vice versa.
      */
-    public void sendClipboardContentFiles(List<File> files, long size, String basePath) {
+    void sendClipboardContentText(String text, int size) {
+        send(true, new NetworkClipboardTextMessage(text, size));
+    }
+
+    /**
+     * Might block (!)
+     * <p/>
+     * Assistant 2 assisted or vice versa.
+     */
+    void sendClipboardContentGraphic(TransferableImage image) {
+        send(true, new NetworkClipboardGraphicMessage(image));
+    }
+
+    /**
+     * Might block (!)
+     * <p/>
+     * Assistant 2 assisted or vice versa.
+     */
+    void sendClipboardContentFiles(List<File> files, long size, String basePath) {
         send(true, new NetworkClipboardFilesMessage(files, size, basePath));
     }
 

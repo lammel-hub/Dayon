@@ -1,8 +1,8 @@
 package mpo.dayon.common.network;
 
-import mpo.dayon.assisted.compressor.CompressorEngineConfiguration;
+import mpo.dayon.common.capture.Gray8Bits;
+import mpo.dayon.common.compressor.CompressorEngineConfiguration;
 import mpo.dayon.common.buffer.MemByteBuffer;
-import mpo.dayon.common.capture.Capture;
 import mpo.dayon.common.capture.CaptureEngineConfiguration;
 import mpo.dayon.common.capture.CaptureTile;
 import mpo.dayon.common.network.message.NetworkKeyControlMessage;
@@ -11,10 +11,12 @@ import mpo.dayon.common.network.message.NetworkMouseControlMessage;
 import mpo.dayon.common.squeeze.CompressionMethod;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledIf;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 import java.awt.*;
+import java.awt.im.InputContext;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.util.List;
@@ -41,34 +43,35 @@ class NetworkSenderTest {
         sender.start(1);
     }
 
+    static boolean isLocaleNull() {
+        return InputContext.getInstance().getLocale() == null;
+    }
+
     @Test
+    @DisabledIf("isLocaleNull")
     void sendHello() throws IOException {
         // given
-        final int major = 0;
-        final int minor = 0;
+        final char osId = 'l';
+        final String inputLocale = InputContext.getInstance().getLocale().toString();
         // when
-        sender.sendHello();
+        sender.sendHello(osId);
         // then
         verify(outMock, timeout(50)).writeByte(MAGIC_NUMBER);
         verify(outMock).write(NetworkMessageType.HELLO.ordinal());
-        verify(outMock, times(2)).writeInt(valueCaptor.capture());
-        final List<Integer> capturedValues = valueCaptor.getAllValues();
-        int first = capturedValues.get(0);
-        int last = capturedValues.get(capturedValues.size() - 1);
-        assertEquals(major, first);
-        assertEquals(minor, last);
+        verify(outMock, times(2)).writeInt(anyInt());
+        verify(outMock).writeChar(osId);
+        verify(outMock).writeUTF(inputLocale);
     }
+
 
     @Test
     void sendCapture() throws IOException {
         // given
-        Dimension screenDim = new Dimension(1024, 768);
-        Dimension tileDim = new Dimension(32, 32);
         CaptureTile[] dirty = new CaptureTile[0];
         int noNewCompressionConfig = 0;
-        Capture capture = new Capture(1, false, 0, 0, screenDim, tileDim, dirty);
+        int captureId = 1;
         // when
-        sender.sendCapture(capture, CompressionMethod.NONE, null, new MemByteBuffer());
+        sender.sendCapture(captureId, CompressionMethod.NONE, null, new MemByteBuffer());
         // then
         verify(outMock, timeout(50)).writeByte(MAGIC_NUMBER);
         verify(outMock).write(NetworkMessageType.CAPTURE.ordinal());
@@ -77,7 +80,7 @@ class NetworkSenderTest {
         final List<Integer> capturedValues = valueCaptor.getAllValues();
         int first = capturedValues.get(0);
         int last = capturedValues.get(capturedValues.size() - 1);
-        assertEquals(capture.getId(), first);
+        assertEquals(captureId, first);
         assertEquals(dirty.length, last);
     }
 
@@ -99,16 +102,32 @@ class NetworkSenderTest {
     }
 
     @Test
-    void sendCaptureConfiguration() throws IOException {
+    void sendCaptureConfigurationToLegacyPeerShouldNotIncludeCaptureColorValue() throws IOException {
         // given
         CaptureEngineConfiguration configuration = new CaptureEngineConfiguration();
+        boolean monochromePeer = true;
         // when
-        sender.sendCaptureConfiguration(configuration);
+        sender.sendCaptureConfiguration(configuration, monochromePeer);
         // then
         verify(outMock, timeout(50)).writeByte(MAGIC_NUMBER);
         verify(outMock).write(NetworkMessageType.CAPTURE_CONFIGURATION.ordinal());
         verify(outMock).write(configuration.getCaptureQuantization().ordinal());
         verify(outMock).writeInt(configuration.getCaptureTick());
+    }
+
+    @Test
+    void sendCaptureConfigurationIncludeTheRightCaptureColorValue() throws IOException {
+        // given
+        CaptureEngineConfiguration configuration = new CaptureEngineConfiguration(333, Gray8Bits.X_16, true);
+        boolean monochromePeer = false;
+        // when
+        sender.sendCaptureConfiguration(configuration, monochromePeer);
+        // then
+        verify(outMock, timeout(50)).writeByte(MAGIC_NUMBER);
+        verify(outMock).write(NetworkMessageType.CAPTURE_CONFIGURATION.ordinal());
+        verify(outMock).write(configuration.getCaptureQuantization().ordinal());
+        verify(outMock).writeInt(configuration.getCaptureTick());
+        verify(outMock).writeShort(1);
     }
 
     @Test

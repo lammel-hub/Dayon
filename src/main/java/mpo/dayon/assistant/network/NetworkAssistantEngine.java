@@ -1,7 +1,7 @@
 package mpo.dayon.assistant.network;
 
 import com.dosse.upnp.UPnP;
-import mpo.dayon.assisted.compressor.CompressorEngineConfiguration;
+import mpo.dayon.common.compressor.CompressorEngineConfiguration;
 import mpo.dayon.common.capture.CaptureEngineConfiguration;
 import mpo.dayon.common.concurrent.RunnableEx;
 import mpo.dayon.common.configuration.ReConfigurable;
@@ -17,7 +17,10 @@ import javax.net.ssl.SSLServerSocketFactory;
 import javax.net.ssl.SSLSocket;
 import java.awt.*;
 import java.awt.datatransfer.ClipboardOwner;
+import java.awt.datatransfer.DataFlavor;
 import java.io.*;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.net.Socket;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
@@ -25,6 +28,7 @@ import java.security.cert.CertificateEncodingException;
 
 import static java.lang.String.format;
 import static mpo.dayon.common.utils.SystemUtilities.safeClose;
+import static mpo.dayon.common.version.Version.isColoredVersion;
 import static mpo.dayon.common.version.Version.isCompatibleVersion;
 
 public class NetworkAssistantEngine extends NetworkEngine implements ReConfigurable<NetworkAssistantEngineConfiguration> {
@@ -58,10 +62,29 @@ public class NetworkAssistantEngine extends NetworkEngine implements ReConfigura
     @Override
     public void reconfigure(NetworkAssistantEngineConfiguration configuration) {
         this.configuration = configuration;
+        fireOnReconfigured(configuration);
     }
 
     public void addListener(NetworkAssistantEngineListener listener) {
         listeners.add(listener);
+    }
+
+    public boolean selfTest(String publicIp) {
+        if (publicIp == null) {
+            return false;
+        }
+        if (!manageRouterPorts(0, configuration.getPort())) {
+            try (ServerSocket listener = new ServerSocket(configuration.getPort())) {
+                try (Socket socket = new Socket()) {
+                    socket.connect(new InetSocketAddress(publicIp, configuration.getPort()), 1000);
+                }
+                Log.info("Port " + configuration.getPort() + " is reachable from the outside");
+            } catch (IOException e) {
+                Log.warn("Port " + configuration.getPort() + " is not reachable from the outside");
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -71,16 +94,13 @@ public class NetworkAssistantEngine extends NetworkEngine implements ReConfigura
         if (cancelling.get() || receiver != null) {
             return;
         }
-        if (UPnP.isUPnPAvailable() && !UPnP.isMappedTCP(configuration.getPort())) {
-            UPnP.openPortTCP(configuration.getPort(), APP_NAME);
-        }
+
         receiver = new Thread(new RunnableEx() {
             @Override
             protected void doRun() throws NoSuchAlgorithmException, KeyManagementException {
                 NetworkAssistantEngine.this.receivingLoop(compatibilityMode);
             }
         }, "NetworkReceiver");
-
         receiver.start();
     }
 
@@ -94,11 +114,23 @@ public class NetworkAssistantEngine extends NetworkEngine implements ReConfigura
         fireOnDisconnecting();
     }
 
-    public void manageRouterPorts(int oldPort, int newPort) {
-        if (UPnP.isUPnPAvailable()) {
-            UPnP.closePortTCP(oldPort);
-            UPnP.openPortTCP(newPort, APP_NAME);
+    public static boolean manageRouterPorts(int oldPort, int newPort) {
+        if (!UPnP.isUPnPAvailable()) {
+            return false;
         }
+        if (oldPort != 0 && UPnP.isMappedTCP(oldPort)) {
+            UPnP.closePortTCP(oldPort);
+            Log.info(format("Disabled forwarding for port %d", oldPort));
+        }
+        if (!UPnP.isMappedTCP(newPort)) {
+            if (UPnP.openPortTCP(newPort, APP_NAME)) {
+                Log.info(format("Enabled forwarding for port %d", newPort));
+                return true;
+            }
+            Log.warn(format("Failed to enable forwarding for port %d", newPort));
+            return false;
+        }
+        return true;
     }
 
     // right, keep streams open - forever!
@@ -112,7 +144,7 @@ public class NetworkAssistantEngine extends NetworkEngine implements ReConfigura
             awaitConnections(compatibilityMode);
             startFileReceiver();
             initSender(8);
-            initInputStream();
+            createInputStream();
 
             while (proceed) {
                 NetworkMessage.unmarshallMagicNumber(in); // blocking read (!)
@@ -129,6 +161,8 @@ public class NetworkAssistantEngine extends NetworkEngine implements ReConfigura
             handleIOException(ex);
         } catch (CertificateEncodingException ex) {
             Log.error(ex.getMessage());
+        } catch (ClassNotFoundException e) {
+            throw new IllegalArgumentException(e);
         } finally {
             closeConnections();
             UPnP.closePortTCP(configuration.getPort());
@@ -200,7 +234,7 @@ public class NetworkAssistantEngine extends NetworkEngine implements ReConfigura
         }
     }
 
-    private boolean processIntroduced(NetworkMessageType type, ObjectInputStream in) throws IOException {
+    private boolean processIntroduced(NetworkMessageType type, ObjectInputStream in) throws IOException, ClassNotFoundException {
         switch (type) {
             case CAPTURE:
                 final NetworkCaptureMessage capture = NetworkCaptureMessage.unmarshall(in);
@@ -218,6 +252,13 @@ public class NetworkAssistantEngine extends NetworkEngine implements ReConfigura
                 final NetworkClipboardTextMessage clipboardTextMessage = NetworkClipboardTextMessage.unmarshall(in);
                 fireOnByteReceived(1 + clipboardTextMessage.getWireSize()); // +1 : magic number (byte)
                 setClipboardContents(clipboardTextMessage.getText(), clipboardOwner);
+                fireOnClipboardReceived();
+                return true;
+
+            case CLIPBOARD_GRAPHIC:
+                final NetworkClipboardGraphicMessage clipboardGraphicMessage = NetworkClipboardGraphicMessage.unmarshall(in);
+                fireOnByteReceived(1 + clipboardGraphicMessage.getWireSize()); // +1 : magic number (byte)
+                setClipboardContents(clipboardGraphicMessage.getGraphic().getTransferData(DataFlavor.imageFlavor), clipboardOwner);
                 fireOnClipboardReceived();
                 return true;
 
@@ -246,8 +287,7 @@ public class NetworkAssistantEngine extends NetworkEngine implements ReConfigura
     private boolean processUnIntroduced(NetworkMessageType type, ObjectInputStream in) throws IOException {
         switch (type) {
             case HELLO:
-                introduce(in);
-                fireOnConnected(connection);
+                fireOnConnected(connection, introduce(in));
                 return true;
 
             case PING:
@@ -256,6 +296,7 @@ public class NetworkAssistantEngine extends NetworkEngine implements ReConfigura
             case CAPTURE:
             case MOUSE_LOCATION:
             case CLIPBOARD_TEXT:
+            case CLIPBOARD_GRAPHIC:
             case CLIPBOARD_FILES:
             case GOODBYE:
                 throw new IllegalArgumentException(format("Unexpected message [%s]!", type.name()));
@@ -265,13 +306,15 @@ public class NetworkAssistantEngine extends NetworkEngine implements ReConfigura
         }
     }
 
-    private void introduce(ObjectInputStream in) throws IOException {
+    private NetworkHelloMessage introduce(ObjectInputStream in) throws IOException {
         final NetworkHelloMessage hello = NetworkHelloMessage.unmarshall(in);
         fireOnByteReceived(1 + hello.getWireSize()); // +1 : magic number (byte)
         if (!isCompatibleVersion(hello.getMajor(), hello.getMinor(), Version.get())) {
             Log.error(format("Incompatible assisted version: %d.%d", hello.getMajor(), hello.getMinor()));
             throw new IOException("version.wrong");
         }
+        configuration.setMonochromePeer(!isColoredVersion(hello.getMajor()));
+        return hello;
     }
 
     /**
@@ -279,7 +322,7 @@ public class NetworkAssistantEngine extends NetworkEngine implements ReConfigura
      */
     public void sendCaptureConfiguration(CaptureEngineConfiguration configuration) {
         if (sender != null) {
-            sender.sendCaptureConfiguration(configuration);
+            sender.sendCaptureConfiguration(configuration, this.configuration.isMonochromePeer());
         }
     }
 
@@ -319,6 +362,15 @@ public class NetworkAssistantEngine extends NetworkEngine implements ReConfigura
         }
     }
 
+    /**
+     * Might be blocking if the sender queue is full (!)
+     */
+    public void sendScreenshotRequest() {
+        if (sender != null) {
+            sender.sendScreenshotRequest();
+        }
+    }
+
     private void fireOnReady() {
         listeners.getListeners().forEach(NetworkAssistantEngineListener::onReady);
     }
@@ -331,8 +383,8 @@ public class NetworkAssistantEngine extends NetworkEngine implements ReConfigura
         return listeners.getListeners().stream().allMatch(listener -> listener.onAccepted(connection));
     }
 
-    private void fireOnConnected(Socket connection) {
-        listeners.getListeners().forEach(listener -> listener.onConnected(connection));
+    private void fireOnConnected(Socket connection, NetworkHelloMessage hello) {
+        listeners.getListeners().forEach(listener -> listener.onConnected(connection, hello.getOsId(), hello.getInputLocale(), hello.getMajor()));
     }
 
     private void fireOnByteReceived(int count) {
@@ -367,5 +419,9 @@ public class NetworkAssistantEngine extends NetworkEngine implements ReConfigura
 
     private void fireOnFingerprinted(String fingerprints) {
         listeners.getListeners().forEach(listener -> listener.onFingerprinted(fingerprints));
+    }
+
+    private void fireOnReconfigured(NetworkAssistantEngineConfiguration configuration) {
+        listeners.getListeners().forEach(listener -> listener.onReconfigured(configuration));
     }
 }

@@ -5,6 +5,8 @@ import javax.swing.JOptionPane;
 
 import mpo.dayon.common.log.Log;
 
+import java.util.Objects;
+
 import static java.lang.String.format;
 import static mpo.dayon.common.babylon.Babylon.translate;
 
@@ -22,14 +24,7 @@ public final class FatalErrorHandler {
         Log.fatal("Bye!");
 
         if (frame != null) {
-            String info = error.getMessage();
-
-            if (info == null) {
-                info = translate("fatal.error.msg3");
-            } else {
-                info = translate(info);
-            }
-
+            String info = translate(Objects.requireNonNullElse(error.getMessage(), "fatal.error.msg3"));
             JOptionPane.showMessageDialog(frame, format("%s%n%s", translate("fatal.error.msg1"), translate("fatal.error.msg2", info)),
                     translate("fatal.error"), JOptionPane.ERROR_MESSAGE);
         }

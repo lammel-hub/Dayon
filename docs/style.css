@@ -7,6 +7,7 @@ body {
 
 img {
   border:none;
+  vertical-align: bottom;
 }
 
 #container {
@@ -77,20 +78,14 @@ img {
 }
 
 #content h3 {
-  font-size:120%;
+  font-size:125%;
 }
 
 #content h4 {
   font-size:110%;
 }
 
-#intro {
-  min-height:120px;
-  background:url('intro.png') no-repeat 5px 5px;
-}
-
 #intro p {
-  margin-left:220px;
   font-size:130%;
 }
 
@@ -230,4 +225,18 @@ nav a:hover:before {
 #toggle:checked + .hamburger + .nav {
   top: 0;
   transform: scale(1);
+}
+
+@media all and (max-width:800px){
+    #container {
+      width:95%;
+    }
+
+    #top, #menu {
+      display: none;
+    }
+
+    .hamburger {
+      margin-top: -50px;
+    }
 }

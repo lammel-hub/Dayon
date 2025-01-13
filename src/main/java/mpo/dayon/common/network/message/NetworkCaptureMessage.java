@@ -2,7 +2,7 @@ package mpo.dayon.common.network.message;
 
 import java.io.*;
 
-import mpo.dayon.assisted.compressor.CompressorEngineConfiguration;
+import mpo.dayon.common.compressor.CompressorEngineConfiguration;
 import mpo.dayon.common.buffer.MemByteBuffer;
 import mpo.dayon.common.squeeze.CompressionMethod;
 import mpo.dayon.common.utils.UnitUtilities;
@@ -102,6 +102,6 @@ public class NetworkCaptureMessage extends NetworkMessage {
 	}
 
 	public String toString() {
-		return String.format("[id:%d] [%s]", id, UnitUtilities.toBitSize(8d * payload.size()));
+		return String.format("[id:%d][%s]", id, UnitUtilities.toBitSize(8d * payload.size()));
 	}
 }

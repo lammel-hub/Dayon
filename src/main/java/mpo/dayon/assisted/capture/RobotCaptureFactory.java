@@ -15,11 +15,11 @@ public class RobotCaptureFactory implements CaptureFactory {
 
 	@Override
 	public Dimension getDimension() {
-		return captureDimension;
+		return new Dimension(captureDimension);
 	}
 
 	@Override
-	public byte[] captureGray(Gray8Bits quantization) {
-		return ScreenUtilities.captureGray(quantization);
+	public byte[] captureScreen(Gray8Bits quantization) {
+		return quantization == null ? ScreenUtilities.captureColors() : ScreenUtilities.captureGray(quantization);
 	}
 }

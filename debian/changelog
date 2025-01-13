@@ -1,3 +1,54 @@
+dayon (15.0.1) stable; urgency=medium
+
+  * Adaptive capture intervall
+  * Performance improvements
+  * Fixed connection reset when switching between singel/multi screen
+
+ -- Reto Galante <reto@galante.ch>  Sun, 8 December 2024 12:00:00 +0000
+
+dayon (15.0.0) stable; urgency=medium
+
+  * Option to monitor in true colors
+  * Additional gray scales
+  * Improved UI responsiveness
+
+ -- Reto Galante <reto@galante.ch>  Mon, 18 November 2024 12:00:00 +0000
+
+dayon (14.0.2) stable; urgency=low
+
+  * Improved UPnP gateway discovery
+  * Improved chinese translation
+
+ -- Reto Galante <reto@galante.ch>  Fri, 7 June 2024 12:00:00 +0000
+
+dayon (14.0.1) stable; urgency=low
+
+  * Slight performance improvements
+  * Minor UI fixes
+
+ -- Reto Galante <reto@galante.ch>  Thu, 23 May 2024 12:00:00 +0000
+
+dayon (14.0.0) stable; urgency=medium
+
+  * Option to configure token server within the UI
+  * Support of clipboards containing graphics
+  * Send cmd key if assisted is running on macOS
+  * Option to take screenshots at the assisted
+  * Detection of different keyboard layouts
+  * Some minor UI fixes
+
+ -- Reto Galante <reto@galante.ch>  Thu, 7 Mar 2024 12:00:00 +0000
+
+dayon (13.0.2) stable; urgency=medium
+
+  * Major UI rework
+  * Send ctrl key
+  * Option to lock the window to the assisted screen aspect ration
+  * Option to change the language within the UI
+  * Option to start JITSI meet to chat with the remote peer
+
+ -- Reto Galante <reto@galante.ch>  Sun, 18 Feb 2024 12:00:00 +0000
+
 dayon (13.0.1) stable; urgency=medium
 
   * Full HiDPI support

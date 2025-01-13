@@ -1,5 +1,4 @@
 package mpo.dayon.common.monitoring.counter;
-
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -16,7 +15,7 @@ class BitCounterTest {
     @BeforeAll
     static void getLocale() {
         defaultLocale = Locale.getDefault();
-        Locale.setDefault(new Locale("de", "CH"));
+        Locale.setDefault(Locale.forLanguageTag("de-CH"));
     }
 
     @AfterAll
@@ -37,7 +36,7 @@ class BitCounterTest {
     void computeAndResetInstantValue() {
         // given
         BitCounter bc = new BitCounter(null, null);
-        CounterListener cl = mock(CounterListener.class);
+        CounterListener<Double> cl = (CounterListener<Double>) mock(CounterListener.class);
         bc.addListener(cl);
         bc.start(1);
 

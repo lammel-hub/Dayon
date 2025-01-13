@@ -2,7 +2,7 @@ package mpo.dayon.assisted.capture;
 
 import java.awt.*;
 import java.util.Arrays;
-import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import mpo.dayon.common.capture.Capture;
@@ -23,6 +23,8 @@ public class CaptureEngine implements ReConfigurable<CaptureEngineConfiguration>
 
     private static final Dimension TILE_DIMENSION = new Dimension(32, 32);
 
+    private final Dimension captureDimension;
+
     private final CaptureFactory captureFactory;
 
     private final Listeners<CaptureEngineListener> listeners = new Listeners<>();
@@ -39,23 +41,23 @@ public class CaptureEngine implements ReConfigurable<CaptureEngineConfiguration>
 
     private CaptureEngineConfiguration configuration;
 
-    private boolean reconfigured;
+    private volatile boolean reconfigured;
+
+    private boolean running;
 
     public CaptureEngine(CaptureFactory captureFactory) {
         this.captureFactory = captureFactory;
-        final int x = (int) Math.ceil((float) captureFactory.getDimension().width / TILE_DIMENSION.width);
-        final int y = (int) Math.ceil((float) captureFactory.getDimension().height / TILE_DIMENSION.height);
+        this.captureDimension = captureFactory.getDimension();
+        final int x = (captureDimension.width + TILE_DIMENSION.width -1) / TILE_DIMENSION.width;
+        final int y = (captureDimension.height + TILE_DIMENSION.height -1) / TILE_DIMENSION.height;
         this.previousCapture = new long[x * y];
         resetPreviousCapture();
+        running = true;
 
         this.thread = new Thread(new RunnableEx() {
             @Override
             protected void doRun() {
-                try {
-                    CaptureEngine.this.mainLoop();
-                } catch (InterruptedException e) {
-                    thread.interrupt();
-                }
+                CaptureEngine.this.mainLoop();
             }
         }, "CaptureEngine");
     }
@@ -84,16 +86,24 @@ public class CaptureEngine implements ReConfigurable<CaptureEngineConfiguration>
 
     public void start() {
         Log.debug("CaptureEngine start");
+        running = true;
         thread.start();
     }
 
     public void stop() {
         Log.debug("CaptureEngine stop");
+        running = false;
         thread.interrupt();
+        try {
+            thread.join();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
-    private void mainLoop() throws InterruptedException {
+    private void mainLoop() {
         Gray8Bits quantization = null;
+        boolean captureColors = false;
         int tick = -1;
         long start = -1L;
         int captureId = 0;
@@ -101,61 +111,73 @@ public class CaptureEngine implements ReConfigurable<CaptureEngineConfiguration>
         int skipped = 0;
         AtomicBoolean reset = new AtomicBoolean(false);
 
-        while (true) {
-            reset.set(false);
-            synchronized (reconfigurationLOCK) {
-                if (reconfigured) {
-                    // assuming everything has changed (!)
-                    quantization = configuration.getCaptureQuantization();
-                    tick = configuration.getCaptureTick();
-                    start = System.currentTimeMillis();
-                    captureCount = 0;
-                    skipped = 0;
-                    resetPreviousCapture();
-                    // I'm using a flag to tag the capture as a RESET - it is then easier
-                    // to handle the reset message until the assistant without having to
-                    // change anything (e.g., merging mechanism in the compressor engine).
-                    reset.set(true);
-                    Log.info(format("Capture engine has been reconfigured [tile: %d] %s", captureId, configuration));
-                    reconfigured = false;
+        while (running) {
+            if (reconfigured) {
+                synchronized (reconfigurationLOCK) {
+                    if (reconfigured) {
+                        // assuming everything has changed (!)
+                        quantization = configuration.getCaptureQuantization();
+                        captureColors = configuration.isCaptureColors();
+                        tick = configuration.getCaptureTick();
+                        start = System.currentTimeMillis();
+                        captureCount = 0;
+                        skipped = 0;
+                        resetPreviousCapture();
+                        // I'm using a flag to tag the capture as a RESET - it is then easier
+                        // to handle the reset message until the assistant without having to
+                        // change anything (e.g., merging mechanism in the compressor engine).
+                        reset.set(true);
+                        Log.info(format("Capture engine has been reconfigured [tile: %d] %s", captureId, configuration));
+                        reconfigured = false;
+                    }
                 }
             }
-            ++captureCount;
-            ++captureId;
-            final byte[] pixels = captureFactory.captureGray(quantization);
 
+            final byte[] pixels = captureColors ? captureFactory.captureScreen(null) : captureFactory.captureScreen(quantization);
             if (pixels == null) {
                 // testing purpose (!)
                 Log.info("CaptureFactory has finished!");
                 break;
             }
-            fireOnRawCaptured(captureId, pixels); // debugging purpose (!)
-            final CaptureTile[] dirty = computeDirtyTiles(captureId, pixels, captureFactory.getDimension());
 
-            if (!Arrays.stream(dirty).allMatch(Objects::isNull)) {
-                final Capture capture = new Capture(captureId, reset.get(), skipped, 0, captureFactory.getDimension(), TILE_DIMENSION, dirty);
+            ++captureCount;
+            ++captureId;
+
+            fireOnRawCaptured(captureId, pixels); // debugging purpose (!)
+            final CaptureTile[] dirty = computeDirtyTiles(pixels);
+
+            if (dirty != null) {
+                final Capture capture = new Capture(captureId, reset.get(), skipped, 0, captureDimension, TILE_DIMENSION, dirty);
                 fireOnCaptured(capture); // might update the capture (i.e., merging with previous not sent yet)
                 updatePreviousCapture(capture);
+                reset.set(false);
             }
 
-            final int delayedCaptureCount = syncOnTick(start, captureCount, captureId, tick);
-            captureCount += delayedCaptureCount;
-            captureId += delayedCaptureCount;
-            skipped = delayedCaptureCount;
+            skipped = syncOnTick(start, captureCount, captureId, tick);
+            if (skipped > 0) {
+                captureCount += skipped;
+                captureId += skipped;
+                tick +=10;
+                Log.info("Increased capture tick to " + tick);
+            }
         }
         Log.info("The capture engine has been stopped!");
     }
 
-    private static int syncOnTick(final long start, final int captureCount, final int captureId, final long tick) throws InterruptedException {
+    private static int syncOnTick(final long start, final int captureCount, final int captureId, final long tick) {
         int delayedCaptureCount = 0;
         while (true) {
             final long captureMaxEnd = start + (captureCount + delayedCaptureCount) * tick;
             final long capturePause = captureMaxEnd - System.currentTimeMillis();
-            if (capturePause < 0) {
+            if (capturePause < 0L) {
                 ++delayedCaptureCount;
-                Log.warn(format("Skipping capture (%d) %s", captureId + delayedCaptureCount, UnitUtilities.toElapsedTime(-capturePause)));
-            } else if (capturePause > 0) {
-                Thread.sleep(capturePause);
+                Log.warn(format("Skipping capture (%s) %s", captureId + delayedCaptureCount, UnitUtilities.toElapsedTime(-capturePause)));
+            } else if (capturePause > 0L) {
+                try {
+                    TimeUnit.MILLISECONDS.sleep(capturePause);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
                 return delayedCaptureCount;
             }
         }
@@ -175,9 +197,9 @@ public class CaptureEngine implements ReConfigurable<CaptureEngineConfiguration>
         }
     }
 
-    private CaptureTile[] computeDirtyTiles(int captureId, byte[] capture, Dimension captureDimension) {
-        final int x = (int) Math.ceil((float) captureDimension.width / TILE_DIMENSION.width);
-        final int y = (int) Math.ceil((float) captureDimension.height / TILE_DIMENSION.height);
+    private CaptureTile[] computeDirtyTiles(byte[] capture) {
+        final int x = (captureDimension.width + TILE_DIMENSION.width - 1) / TILE_DIMENSION.width;
+        final int y = (captureDimension.height + TILE_DIMENSION.height - 1) / TILE_DIMENSION.height;
         final int length = x * y;
         // change in screen resolution?
         if (length != previousCapture.length) {
@@ -185,36 +207,41 @@ public class CaptureEngine implements ReConfigurable<CaptureEngineConfiguration>
             resetPreviousCapture();
         }
         CaptureTile[] dirty = new CaptureTile[length];
+        byte[] tileData;
+        boolean hasDirty = false;
+        int pixelSize = configuration.isCaptureColors() ? 4 : 1;
         int tileId = 0;
         for (int ty = 0; ty < captureDimension.height; ty += TILE_DIMENSION.height) {
             final int th = min(captureDimension.height - ty, TILE_DIMENSION.height);
             for (int tx = 0; tx < captureDimension.width; tx += TILE_DIMENSION.width) {
                 final int tw = min(captureDimension.width - tx, TILE_DIMENSION.width);
-                final int offset = ty * captureDimension.width + tx;
-                final byte[] tileData = createTile(capture, captureDimension.width, offset, tw, th);
+                tileData = createTile(capture, captureDimension.width, tw, th, tx, ty, pixelSize);
                 final long cs = CaptureTile.computeChecksum(tileData, 0, tileData.length);
                 if (cs != previousCapture[tileId]) {
-                    dirty[tileId] = new CaptureTile(captureId, tileId, cs, new Position(tx, ty), tw, th, tileData);
+                    dirty[tileId] = new CaptureTile(cs, new Position(tx, ty), tw, th, tileData);
+                    hasDirty = true;
                 }
                 ++tileId;
             }
         }
-        return dirty;
+        return hasDirty ? dirty : null;
     }
 
     /**
-     * Screen-rectangle buffer to tile-rectangle buffer.
+     * Screen-rectangle buffer to tile-rectangle buffer. Use pixelSize 4 for colored and 1 for gray pixels.
      */
-    private static byte[] createTile(byte[] capture, int width, int srcPos, int tw, int th) {
-        final int capacity = tw * th;
+    private static byte[] createTile(byte[] capture, int width, int tw, int th, int tx, int ty, int pixelSize) {
+        final int capacity = tw * th * pixelSize;
         final byte[] tile = new byte[capacity];
         final int maxSrcPos = capture.length;
+        int srcPos = ty * width * pixelSize + tx * pixelSize;
         int destPos = 0;
-
+        final int screenRowIncrement = width * pixelSize;
+        final int tileRowIncrement = tw * pixelSize;
         while (destPos < capacity && srcPos < maxSrcPos) {
-            System.arraycopy(capture, srcPos, tile, destPos, tw);
-            srcPos += width;
-            destPos += tw;
+            System.arraycopy(capture, srcPos, tile, destPos, tileRowIncrement);
+            srcPos += screenRowIncrement;
+            destPos += tileRowIncrement;
         }
         return tile;
     }

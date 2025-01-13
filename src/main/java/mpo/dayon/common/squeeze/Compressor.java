@@ -64,7 +64,7 @@ public final class Compressor {
         encoded.write(capture.getSkipped()); // as a byte (!)
         encoded.write(capture.getMerged()); // as a byte (!)
         if (capture.isReset()) {
-            Log.info("Clear compressor cache [tile:" + capture.getId() + "]");
+            Log.debug("Clear compressor cache [tile:" + capture.getId() + "]");
             cache.clear(); // here for symmetry with the de-compressor (!)
         }
         encoded.writeShort(capture.getWidth());
@@ -139,11 +139,11 @@ public final class Compressor {
         final int cId = in.readInt();
         final boolean cReset = in.read() == 1;
         if (cReset) {
-            Log.info("Clear de-compressor cache [tile:" + cId + "]");
+            Log.debug("Clear de-compressor cache [tile:" + cId + "]");
             cache.clear();
         }
-        final int cSkipped = in.readByte() & 0xFF;
-        final int cMerged = in.readByte() & 0xFF;
+        final int cSkipped = in.readUnsignedByte();
+        final int cMerged = in.readUnsignedByte();
         final Dimension captureDimension = new Dimension(in.readShort(), in.readShort());
         final Dimension tileDimension = new Dimension(in.readShort(), in.readShort());
         final CaptureTile.XYWH[] xywh = CaptureTile.getXYWH(captureDimension.width, captureDimension.height, tileDimension.width, tileDimension.height);
@@ -157,13 +157,13 @@ public final class Compressor {
                     final int value = in.readShort();
                     if (value >= 0 && value < 256) // single-level
                     {
-                        dirty[tidx] = new CaptureTile(cId, tidx, xywh[tidx], (byte) value);
+                        dirty[tidx] = new CaptureTile(xywh[tidx], (byte) value);
                     } else if (value == 256) // multi-level (cached)
                     {
-                        dirty[tidx] = new CaptureTile(cId, tidx, xywh[tidx], cache.get(in.readInt()));
+                        dirty[tidx] = new CaptureTile(xywh[tidx], cache.get(in.readInt()));
                     } else // multi-level (not cached)
                     {
-                        processUncached(cache, in, cId, xywh[tidx], dirty, tidx, value);
+                        processUncached(cache, in, xywh[tidx], dirty, tidx, value);
                     }
                 }
                 idx += markerCount;
@@ -175,7 +175,7 @@ public final class Compressor {
         return new Capture(cId, cReset, cSkipped, cMerged, captureDimension, tileDimension, dirty);
     }
 
-    private void processUncached(TileCache cache, DataInputStream in, int cId, CaptureTile.XYWH xywh, CaptureTile[] dirty, int tidx, int value) throws IOException {
+    private void processUncached(TileCache cache, DataInputStream in, CaptureTile.XYWH xywh, CaptureTile[] dirty, int tidx, int value) throws IOException {
         final byte[] tdata = new byte[-value];
         int toffset = 0;
         int tcount;
@@ -184,7 +184,7 @@ public final class Compressor {
         }
         final MemByteBuffer out = new MemByteBuffer();
         rle.runLengthDecode(out, new MemByteBuffer(tdata));
-        dirty[tidx] = new CaptureTile(cId, tidx, xywh, out);
+        dirty[tidx] = new CaptureTile(xywh, out);
         cache.add(dirty[tidx]);
     }
 }

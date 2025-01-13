@@ -1,8 +1,14 @@
 <?php
+define('VERSION', "v.1.2");
+// name of the database file (may also be a path)
 define('DB_NAME', "dayon.db");
+// minimal length of the tokens to be generated (33^N-1 variants)
 define('TOKEN_MIN_LENGTH', 4);
+// number of seconds after which the token will be purged
 define('TOKEN_LIFETIME', 604800);
+// maximum number of tokens that can be generated for a single IP
 define('TOKEN_LIMIT', 700);
+// 8<---8<---8<---
 header('Content-type: text/plain');
 if (isset($_GET['port'])) {
     $port = clean($_GET['port'], 6);
@@ -15,10 +21,12 @@ if (isset($_GET['port'])) {
         }
     }
 } else if (isset($_GET['token'])) {
-    $token = clean($_GET['token'], 7);
+    $token = clean($_GET['token'], TOKEN_MIN_LENGTH * 2);
     $pdo = new PDO('sqlite:'.DB_NAME);
     echo readToken($token, $pdo),"\n";
     updateToken($token, $_SERVER['REMOTE_ADDR'], $pdo);
+} else {
+    echo VERSION,"\n";
 }
 
 function clean($val, $maxLen = "") {
@@ -65,8 +73,7 @@ function computeToken($length) {
 
 function insertToken($token, $address, $port, $pdo) {
     $sql = "INSERT INTO tokens (token,assistant,port,ts) VALUES (:token,:address,:port,:ts)";
-    $date = new DateTime();
-    $ts = $date->getTimestamp();
+    $ts = time();
     $stmt = $pdo->prepare($sql);
     $stmt->bindParam(':token', $token, PDO::PARAM_STR, 7);
     $stmt->bindParam(':address', $address, PDO::PARAM_STR);
@@ -82,8 +89,7 @@ function insertToken($token, $address, $port, $pdo) {
 }
 
 function removeOldTokens($pdo) {
-    $date = new DateTime();
-    $ts = $date->getTimestamp();
+    $ts = time();
     $delete = "DELETE FROM tokens WHERE ts < ?";
     $stmt = $pdo->prepare($delete);
     $stmt->execute(array($ts-TOKEN_LIFETIME));
@@ -102,14 +108,13 @@ function readToken($token, $pdo) {
 }
 
 function updateToken($token, $address, $pdo) {
-	$sql = "UPDATE tokens SET assisted = :address,ts = :ts WHERE token = :token";
-	$date = new DateTime();
-	$ts = $date->getTimestamp();
-	$stmt = $pdo->prepare($sql);
-	$stmt->bindParam(':address', $address, PDO::PARAM_STR);
-	$stmt->bindParam(':ts', $ts, PDO::PARAM_INT);
-	$stmt->bindParam(':token', $token, PDO::PARAM_STR, 7);
-	$stmt->execute();
+    $sql = "UPDATE tokens SET assisted = :address,ts = :ts WHERE token = :token";
+    $ts = time();
+    $stmt = $pdo->prepare($sql);
+    $stmt->bindParam(':address', $address, PDO::PARAM_STR);
+    $stmt->bindParam(':ts', $ts, PDO::PARAM_INT);
+    $stmt->bindParam(':token', $token, PDO::PARAM_STR, 7);
+    $stmt->execute();
 }
 
 function createDatabase($pdo) {
