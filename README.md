@@ -32,9 +32,14 @@ I also moved the code base to GitHub, where it can easier be maintained.
 
 ## Releases
 
-The ![latest version](https://github.com/RetGal/Dayon/releases) is v13.0 (Beard Butter) - released more than ten years after the initial release.
+The ![latest version](https://github.com/RetGal/Dayon/releases/latest) is v17.0.0 (Furry Flamingo) - released more than ten years after the initial release.
 
-This version offers improved security through individually created certificates with fingerprints that can be compared. However, a compatibility mode is available for connection with older versions.
+v15.0.0 was the first version in which the remote desktop could also be transmitted in colour - in addition to the bandwidth-saving greyscales, 
+v16.0.0 came with the ability of automatically reversing the connection establishment in cases the assistant side is blocked by a NAT or firewall.
+v17.0.0 is the first version which is also vailable as AppImage.
+
+A complete list of the changes in this version is available [here](https://github.com/RetGal/Dayon/releases/tag/v17.0.0)
+ and an overview of the changes between the major versions can be found at: [Changelog](https://retgal.github.io/Dayon/download.html#change-log)
 
 The app is available directly from the [Microsoft Store](https://apps.microsoft.com/detail/9PBM5KW0C790):
 
@@ -46,7 +51,7 @@ as snap:
 
 as flatpak:
 
-[<img src="https://flathub.org/assets/badges/flathub-badge-en.svg" width="180"/>](https://flathub.org/apps/details/io.github.retgal.Dayon)
+[<img src="https://flathub.org/api/badge?svg" width="180"/>](https://flathub.org/apps/details/io.github.retgal.Dayon)
 
 as nix:
 
@@ -100,4 +105,4 @@ For example translations for additional languages would make this app more usefu
 
 Also, improvements of the existing translations and documentation are very welcome! As my knowledge of Chinese is far below zero - and my knowledge of Russian or Turkish just fractions better..
 
-Further testing, especially on macOS would also be highly appreciated.
+Further testing, especially on macOS with silicon (M series) would also be greatly appreciated.

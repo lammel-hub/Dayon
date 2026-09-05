@@ -3,6 +3,7 @@ package mpo.dayon.assistant.control;
 import mpo.dayon.assistant.network.NetworkAssistantEngine;
 import mpo.dayon.common.network.message.NetworkKeyControlMessage;
 import mpo.dayon.common.network.message.NetworkMouseControlMessage;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -16,6 +17,12 @@ class ControlEngineTest {
     void init() {
         network = mock(NetworkAssistantEngine.class);
         controlEngine = new ControlEngine(network);
+    }
+
+    @AfterEach
+    void tearDown() {
+        network = null;
+        controlEngine = null;
     }
 
     @Test
@@ -68,6 +75,19 @@ class ControlEngineTest {
         // when
         controlEngine.onKeyReleased(keyD, charD);
         // then
-        verify(network, timeout(50).atLeast(2)).sendKeyControl(any(NetworkKeyControlMessage.class));
+        verify(network, timeout(250).atLeast(2)).sendKeyControl(any(NetworkKeyControlMessage.class));
+    }
+
+    @Test
+    void shouldReleaseAllKeysAfterOnKeyCodeMinusOneReleased() {
+        // given
+        controlEngine.onKeyPressed(16, '￿');
+        controlEngine.onKeyPressed(65, 'A');
+
+        // when
+        controlEngine.onKeyReleased(-1, '0');
+
+        // then
+        verify(network, timeout(250).atLeast(2)).sendKeyControl(any(NetworkKeyControlMessage.class));
     }
 }

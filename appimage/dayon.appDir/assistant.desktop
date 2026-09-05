@@ -1,0 +1,20 @@
+[Desktop Entry]
+Name=Dayon! Assistant
+Version=1.0
+Exec=dayon assistant
+Comment=Remote assistance
+Comment[de]=Fernwartung
+Comment[es]=Asistencia remota
+Comment[fr]=Assistance à distance
+Comment[it]=Assistenza remota
+Comment[ru]=Удаленная помощь
+Comment[sv]=Distanshjälp
+Comment[tr]=Uzaktan yardım
+Comment[zh]=远程协助
+Keywords=remote;support;offer help
+Icon=dayon
+Type=Application
+Terminal=false
+StartupNotify=true
+Categories=RemoteAccess;Network;
+X-AppImage-Version=18.0.0

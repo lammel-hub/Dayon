@@ -5,10 +5,14 @@ import mpo.dayon.common.event.Listeners;
 import mpo.dayon.common.log.Log;
 
 import java.awt.*;
+import java.util.Random;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MouseEngine {
     private final Listeners<MouseEngineListener> listeners = new Listeners<>();
     private final Thread thread;
+    private final AtomicBoolean running = new AtomicBoolean();
+    private final Random random = new Random();
 
     public MouseEngine(MouseEngineListener listener) {
         listeners.add(listener);
@@ -26,34 +30,45 @@ public class MouseEngine {
 
     public void start() {
         Log.debug("MouseEngine start");
+        running.set(true);
         thread.start();
     }
 
     public void stop() {
         Log.debug("MouseEngine stop");
-        thread.interrupt();
+        running.set(false);
+        if (thread != null) {
+            thread.interrupt();
+        }
     }
 
-    @java.lang.SuppressWarnings("squid:S2189")
+    @SuppressWarnings("squid:S2189")
     private void mainLoop() throws InterruptedException {
         long start = System.currentTimeMillis();
+        long lastMovement = start;
         int captureCount = 0;
         Point previous = new Point(-1, -1);
 
-        //noinspection InfiniteLoopStatement
-        while (true) {
-            final Point current = MouseInfo.getPointerInfo().getLocation();
-            ++captureCount;
-            if (!current.equals(previous) && fireOnLocationUpdated(current)) {
-                previous = current;
+        while (running.get()) {
+            final PointerInfo pointerInfo = MouseInfo.getPointerInfo();
+            // can happen if windows the ctrl + alt + delete screen is active
+            if (pointerInfo != null) {
+                final Point current = pointerInfo.getLocation();
+                if (current.equals(previous) && System.currentTimeMillis() - lastMovement > 59000) {
+                    moveMouse(current);
+                }
+                if (!current.equals(previous) && fireOnLocationUpdated(current)) {
+                    previous = current;
+                    lastMovement = System.currentTimeMillis();
+                }
             }
+            ++captureCount;
             captureCount += syncOnTick(start, captureCount);
         }
     }
 
     private static int syncOnTick(final long start, final int captureCount) throws InterruptedException {
         int delayedCaptureCount = 0;
-
         while (true) {
             final long captureMaxEnd = start + (captureCount + delayedCaptureCount) * 50L;
             final long capturePause = captureMaxEnd - System.currentTimeMillis();
@@ -61,10 +76,18 @@ public class MouseEngine {
                 ++delayedCaptureCount;
             } else if (capturePause > 0) {
                 Thread.sleep(capturePause);
-                break;
+                return delayedCaptureCount;
             }
         }
-        return delayedCaptureCount;
+    }
+
+    private void moveMouse(Point current) {
+        current.translate(random.nextInt(5) - 2, random.nextInt(3) - 1);
+        try {
+            new Robot().mouseMove(current.x, current.y);
+        } catch (AWTException e) {
+            Log.error("Failed to move mouse", e);
+        }
     }
 
     private boolean fireOnLocationUpdated(Point location) {

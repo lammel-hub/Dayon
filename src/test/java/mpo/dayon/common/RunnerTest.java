@@ -3,6 +3,8 @@ package mpo.dayon.common;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.File;
 import java.io.IOException;
@@ -73,24 +75,26 @@ class RunnerTest {
     @Test
     void shouldExtractProgramArgs() {
         // given
-        String[] args = {"lang=en,", "foo=BAR", "spam"};
+        String[] args = {"--lang=en,", "-foo=BAR", "bar=gain", "spam"};
         // when
         Map<String, String> programArgs = extractProgramArgs(args);
         // then
-        assertEquals(2, programArgs.size(), "Unexpected number of extracted ProgramArgs");
+        assertEquals(3, programArgs.size(), "Unexpected number of extracted ProgramArgs");
         assertEquals("en", programArgs.get("lang"), "Key 'lang' should have value 'en'");
         assertEquals("BAR", programArgs.get("foo"), "Key 'foo' should have value 'BAR'");
+        assertEquals("gain", programArgs.get("bar"), "Key 'bar' should have value 'gain'");
     }
 
-    @Test
-    void shouldSetDebug() {
+    @ParameterizedTest
+    @ValueSource(strings = {"debug", "-debug", "--debug"})
+    void shouldSetDebug(String debugArg) {
         // given
-        String[] args = {"debug"};
-        assertNull(System.getProperty("dayon.debug"));
+        String[] args = {debugArg};
+        System.clearProperty("dayon.debug");
         // when
         setDebug(args);
         // then
-        assertEquals("on", System.getProperty("dayon.debug"), "Debug should have been activated");
+        assertTrue(Boolean.getBoolean("dayon.debug"), "Debug should have been activated");
     }
 
     @Test

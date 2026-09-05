@@ -10,7 +10,6 @@ public class MemByteBuffer extends OutputStream {
 	private static final int DEFAULT_INITIAL_CAPACITY = 32;
 
 	private byte[] buffer;
-
 	private int count;
 
 	public MemByteBuffer() {
@@ -26,7 +25,7 @@ public class MemByteBuffer extends OutputStream {
 	 *            the newly created buffer is adopting that byte array (!)
 	 */
 	public MemByteBuffer(byte[] data) {
-		buffer = data.clone();
+		buffer = data;
 		count = data.length;
 	}
 
@@ -35,7 +34,7 @@ public class MemByteBuffer extends OutputStream {
 	}
 
 	public byte[] getInternal() {
-		return buffer.clone();
+		return Arrays.copyOf(buffer, count);
 	}
 
 	public int mark() {
@@ -53,78 +52,88 @@ public class MemByteBuffer extends OutputStream {
 	 * <code>b</code>. The 24 high-order bits of <code>b</code> are ignored.
 	 */
 	@Override
-    public void write(int val) {
-		increaseBuffer(count + 1);
+	public void write(int val) {
+		ensureCapacity(count + 1);
 		buffer[count++] = (byte) val;
 	}
 
 	/**
-	 * @see #write(int)
+	 * Writes the specified bytes to this output stream. The general contract for
+	 * <code>writes</code> is that <code>len</code> bytes are written to the output
+	 * stream. The bytes to be written are the eight low-order bits of each element
+	 * of the array <code>b</code>.
 	 */
-	private void write(int val1, int val2) {
-		increaseBuffer(count + 2);
-		buffer[count++] = (byte) val1;
-		buffer[count++] = (byte) val2;
+	public void writes(int ...vals) {
+		ensureCapacity(count + vals.length);
+		for (int val : vals) {
+			buffer[count++] = (byte) val;
+		}
 	}
 
 	@Override
-    public void write(byte[] buffer) {
+	public void write(byte[] buffer) {
 		write(buffer, 0, buffer.length);
 	}
 
 	@Override
-    public void write(byte[] buffer, int off, int len) {
+	public void write(byte[] buffer, int off, int len) {
 		if (len == 0) {
 			return;
 		}
-		final int newCount = count + len;
-		increaseBuffer(newCount);
+		ensureCapacity(count + len);
 		System.arraycopy(buffer, off, this.buffer, count, len);
-		count = newCount;
+		count += len;
 	}
 
 	/**
 	 * Equivalent to the DataOutputStream version (!)
 	 */
 	public final void writeInt(int val) {
-		write((val >>> 24) & 0xFF, (val >>> 16) & 0xFF);
-		write((val >>> 8) & 0xFF, val & 0xFF);
+		ensureCapacity(count + 4);
+		buffer[count++] = (byte) ((val >>> 24) & 0xFF);
+		buffer[count++] = (byte) ((val >>> 16) & 0xFF);
+		buffer[count++] = (byte) ((val >>> 8) & 0xFF);
+		buffer[count++] = (byte) (val & 0xFF);
 	}
 
 	/**
 	 * Equivalent to the DataOutputStream version (!)
 	 */
-	public final void writeShort(int val) {
-		write((val >>> 8) & 0xFF, val & 0xFF);
+	public final void writeShorts(int ...vals) {
+		ensureCapacity(count + (vals.length * 2));
+		for (int val : vals) {
+			buffer[count++] = (byte) ((val >>> 8) & 0xFF);
+			buffer[count++] = (byte) (val & 0xFF);
+		}
 	}
 
 	public void writeLenAsShort(int mark) {
 		final int end = mark();
 		final int len = end - mark - 2; // -2: the len (as short) itself (!)
 		resetToMark(mark);
-		writeShort(-len);
+		writeShorts(-len);
 		resetToMark(end);
 	}
 
 	public void fill(int len, int val) {
-		final int newCount = count + len;
-		increaseBuffer(newCount);
-		for (int idx = count; idx < newCount; idx++) {
-			buffer[idx] = (byte) val;
-		}
-		count = newCount;
+		ensureCapacity(count + len);
+		Arrays.fill(buffer, count, count + len, (byte) val);
+		count += len;
 	}
 
 	public void arraycopy(byte[] in, int start, int len) {
-		final int newCount = count + len;
-		increaseBuffer(newCount);
+		ensureCapacity(count + len);
 		System.arraycopy(in, start, buffer, count, len);
-		count = newCount;
+		count += len;
 	}
 
-	private void increaseBuffer(int newCount) {
+	private void ensureCapacity(int newCount) {
 		if (newCount > buffer.length) {
-			buffer = Arrays.copyOf(buffer, Math.max(buffer.length << 1, newCount));
+			int newCapacity = Math.max(buffer.length << 1, newCount);
+			if (newCapacity < buffer.length * 3 / 2) {
+				newCapacity = buffer.length * 3 / 2;
+			}
+			buffer = Arrays.copyOf(buffer, newCapacity);
 		}
 	}
 }

@@ -6,15 +6,24 @@ import org.tukaani.xz.*;
 import java.io.*;
 
 public class XzZipper implements Zipper {
-	@Override
+
+	private final FilterOptions options;
+
+    XzZipper() {
+        try {
+            options = new LZMA2Options(3);
+        } catch (UnsupportedOptionsException e) {
+            throw new IllegalArgumentException(e);
+        }
+    }
+
+    @Override
     public MemByteBuffer zip(MemByteBuffer unCompressed) throws IOException {
-		try (MemByteBuffer compressed = new MemByteBuffer()) {
-			try (XZOutputStream xzOutputStream = new XZOutputStream(compressed, new LZMA2Options(6))) {
-				xzOutputStream.write(unCompressed.getInternal(), 0, unCompressed.size());
-				xzOutputStream.flush();
-			}
-			return compressed;
+		final MemByteBuffer compressed = new MemByteBuffer();
+		try (XZOutputStream xzOutputStream = new XZOutputStream(compressed, options)) {
+			xzOutputStream.write(unCompressed.getInternal(), 0, unCompressed.size());
 		}
+		return compressed;
 	}
 
 	@Override

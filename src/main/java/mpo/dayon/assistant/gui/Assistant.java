@@ -1,6 +1,5 @@
 package mpo.dayon.assistant.gui;
 
-import com.dosse.upnp.UPnP;
 import mpo.dayon.assistant.control.ControlEngine;
 import mpo.dayon.assistant.decompressor.DeCompressorEngine;
 import mpo.dayon.assistant.decompressor.DeCompressorEngineListener;
@@ -9,7 +8,7 @@ import mpo.dayon.assistant.network.NetworkAssistantEngine;
 import mpo.dayon.assistant.network.NetworkAssistantEngineListener;
 import mpo.dayon.assistant.utils.NetworkUtilities;
 import mpo.dayon.common.capture.CaptureEngineConfiguration;
-import mpo.dayon.assisted.compressor.CompressorEngineConfiguration;
+import mpo.dayon.common.compressor.CompressorEngineConfiguration;
 import mpo.dayon.common.capture.Capture;
 import mpo.dayon.common.capture.Gray8Bits;
 import mpo.dayon.common.error.FatalErrorHandler;
@@ -17,10 +16,11 @@ import mpo.dayon.common.gui.common.DialogFactory;
 import mpo.dayon.common.gui.common.ImageNames;
 import mpo.dayon.common.log.Log;
 import mpo.dayon.common.monitoring.counter.*;
-import mpo.dayon.common.network.message.NetworkMouseLocationMessageHandler;
+import mpo.dayon.common.network.ClipboardDispatcher;
+import mpo.dayon.common.network.Token;
 import mpo.dayon.common.squeeze.CompressionMethod;
-import mpo.dayon.common.network.FileUtilities;
 import mpo.dayon.common.utils.Language;
+import mpo.dayon.common.version.Version;
 
 import javax.swing.*;
 import java.awt.*;
@@ -30,34 +30,41 @@ import java.awt.geom.AffineTransform;
 import java.awt.image.AffineTransformOp;
 import java.awt.image.BufferedImage;
 import java.awt.image.ImagingOpException;
-import java.io.BufferedReader;
-import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.Socket;
-import java.net.URL;
-import java.util.List;
+import java.net.URI;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
+import static java.awt.image.BufferedImage.TYPE_BYTE_GRAY;
+import static java.awt.image.BufferedImage.TYPE_INT_ARGB_PRE;
 import static java.lang.Math.abs;
 import static java.lang.String.format;
 import static java.lang.String.valueOf;
-import static java.lang.Thread.sleep;
+import static javax.swing.SwingConstants.HORIZONTAL;
 import static mpo.dayon.common.babylon.Babylon.translate;
+import static mpo.dayon.common.configuration.Configuration.DEFAULT_TOKEN_SERVER_URL;
 import static mpo.dayon.common.gui.common.ImageUtilities.getOrCreateIcon;
+import static mpo.dayon.common.network.NetworkEngine.*;
 import static mpo.dayon.common.utils.SystemUtilities.*;
 
 public class Assistant implements ClipboardOwner {
 
-    private static final String PORT_PARAM = "?port=%s";
-    private static final String WHATSMYIP_SERVER_URL = "https://fensterkitt.ch/dayon/whatismyip.php";
-    private final String tokenServerUrl;
+    private static final String PORT_PARAMS = "?port=%s&closed=%d&laddr=%s&v=1.5";
 
-    private final NetworkAssistantEngine network;
+    private static final String TOKEN_PARAMS = "?token=%s&closed=%d&laddr=%s&v=1.5";
+
+    private static final Token TOKEN = new Token(TOKEN_PARAMS);
+
+    private String tokenServerUrl;
+
+    private final NetworkAssistantEngine networkEngine;
 
     private BitCounter receivedBitCounter;
 
@@ -69,7 +76,9 @@ public class Assistant implements ClipboardOwner {
 
     private CaptureCompressionCounter captureCompressionCounter;
 
-    private Set<Counter<?>> counters;
+    private CaptureRateCounter captureRateCounter;
+
+    private ArrayList<Counter<?>> counters;
 
     private AssistantFrame frame;
 
@@ -89,62 +98,76 @@ public class Assistant implements ClipboardOwner {
 
     private int prevHeight = -1;
 
-    private String token;
+    private String publicIp;
 
-    private Boolean upnpEnabled;
+    private String activeIp;
 
     private final AtomicBoolean compatibilityModeActive = new AtomicBoolean(false);
 
+    private final String tokenServerUrlFromYaml;
+
     public Assistant(String tokenServerUrl, String language) {
-        if (tokenServerUrl != null) {
-            this.tokenServerUrl = tokenServerUrl + PORT_PARAM;
-            System.setProperty("dayon.custom.tokenServer", tokenServerUrl);
-        } else {
-            this.tokenServerUrl = DEFAULT_TOKEN_SERVER_URL + PORT_PARAM;
-        }
+        tokenServerUrlFromYaml = tokenServerUrl;
+        networkConfiguration = new NetworkAssistantEngineConfiguration();
+        updateTokenServerUrl(tokenServerUrl);
 
         this.configuration = new AssistantConfiguration();
         // has not been overridden by command line
         if (language == null && !Locale.getDefault().getLanguage().equals(configuration.getLanguage())) {
-            Locale.setDefault(new Locale(configuration.getLanguage()));
+            Locale.setDefault(Locale.forLanguageTag(configuration.getLanguage()));
         }
-
-        initUpnp();
 
         DeCompressorEngine decompressor = new DeCompressorEngine(new MyDeCompressorEngineListener());
         decompressor.start(8);
 
-        NetworkMouseLocationMessageHandler mouseHandler = mouse -> frame.onMouseLocationUpdated(mouse.getX(), mouse.getY());
-        network = new NetworkAssistantEngine(decompressor, mouseHandler, this);
-        networkConfiguration = new NetworkAssistantEngineConfiguration();
-        network.configure(networkConfiguration);
-        network.addListener(new MyNetworkAssistantEngineListener());
+        networkEngine = new NetworkAssistantEngine(decompressor, mouse -> frame.onMouseLocationUpdated(mouse.getX(), mouse.getY()), this);
+        networkEngine.configure(networkConfiguration);
+        networkEngine.addListener(new MyNetworkAssistantEngineListener());
+        networkEngine.initUpnp();
 
         captureEngineConfiguration = new CaptureEngineConfiguration();
         compressorEngineConfiguration = new CompressorEngineConfiguration();
 
-        final String lnf = configuration.getLookAndFeelClassName();
         try {
-            UIManager.setLookAndFeel(lnf);
+            UIManager.setLookAndFeel(getDefaultLookAndFeel());
         } catch (Exception ex) {
-            Log.warn("Could not set the [" + lnf + "] L&F!", ex);
+            Log.warn("Could not set the L&F!", ex);
         }
         initGui();
+    }
 
+    public boolean hasTokenServerUrlFromYaml() {
+        return tokenServerUrlFromYaml != null && !tokenServerUrlFromYaml.isEmpty();
+    }
+
+    private void updateTokenServerUrl(String tokenServerUrl) {
+        this.tokenServerUrl = getTokenServerUrl(tokenServerUrl, networkConfiguration.getTokenServerUrl()) + PORT_PARAMS;
+        if (!this.tokenServerUrl.startsWith(DEFAULT_TOKEN_SERVER_URL)) {
+            System.setProperty("dayon.custom.tokenServer", this.tokenServerUrl.substring(0, this.tokenServerUrl.indexOf('?')));
+        } else {
+            System.clearProperty("dayon.custom.tokenServer");
+        }
+    }
+
+    private String getTokenServerUrl(String... urls) {
+        return Arrays.stream(urls).filter(url -> url != null && !url.trim().isEmpty()).findFirst().orElse(DEFAULT_TOKEN_SERVER_URL);
     }
 
     private void initGui() {
         createCounters();
         if (frame != null) {
-            frame.setVisible(false);
+            clearToken();
+            frame.dispose();
         }
-        frame = new AssistantFrame(createAssistantActions(), counters, createLanguageSelection());
+        frame = new AssistantFrame(createAssistantActions(), counters, createLanguageSelection(), compatibilityModeActive.get(), networkEngine, hasTokenServerUrlFromYaml());
         FatalErrorHandler.attachFrame(frame);
-        frame.addListener(new ControlEngine(network));
+        frame.addListener(new ControlEngine(networkEngine));
         frame.setVisible(true);
     }
 
     private void createCounters() {
+        captureRateCounter = new CaptureRateCounter("captureRate", translate("framesPerSecond"));
+        captureRateCounter.start(1000);
         receivedBitCounter = new BitCounter("receivedBits", translate("networkBandwidth"));
         receivedBitCounter.start(1000);
         receivedTileCounter = new TileCounter("receivedTiles", translate("receivedTileNumber"));
@@ -155,85 +178,91 @@ public class Assistant implements ClipboardOwner {
         mergedTileCounter.start(1000);
         captureCompressionCounter = new CaptureCompressionCounter("captureCompression", translate("captureCompression"));
         captureCompressionCounter.start(1000);
-        counters = new HashSet<>(Arrays.asList(receivedBitCounter, receivedTileCounter, skippedTileCounter, mergedTileCounter, captureCompressionCounter));
+        counters = new ArrayList<>(Arrays.asList(captureRateCounter, receivedBitCounter, receivedTileCounter, skippedTileCounter, mergedTileCounter, captureCompressionCounter));
     }
 
-    private boolean isUpnpEnabled() {
-        while (upnpEnabled == null) {
-            try {
-                sleep(10L);
-            } catch (InterruptedException e) {
-                Log.warn("Swallowed", e);
-                Thread.currentThread().interrupt();
+    private Action createSimpleAction(Runnable runnable, String shortDescKey, String imageName, boolean enabled) {
+        final Action act = new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent ev) {
+                runnable.run();
             }
-        }
-        return upnpEnabled;
+        };
+        act.setEnabled(enabled);
+        act.putValue(Action.SHORT_DESCRIPTION, translate(shortDescKey));
+        act.putValue(Action.SMALL_ICON, getOrCreateIcon(imageName));
+        return act;
     }
 
     private AssistantActions createAssistantActions() {
         AssistantActions assistantActions = new AssistantActions();
         assistantActions.setIpAddressAction(createWhatIsMyIpAction());
-        assistantActions.setNetworkConfigurationAction(createNetworkAssistantConfigurationAction(this));
         assistantActions.setCaptureEngineConfigurationAction(createCaptureConfigurationAction());
         assistantActions.setCompressionEngineConfigurationAction(createCompressionConfigurationAction());
         assistantActions.setResetAction(createResetAction());
         assistantActions.setTokenAction(createTokenAction());
         assistantActions.setRemoteClipboardRequestAction(createRemoteClipboardRequestAction());
         assistantActions.setRemoteClipboardSetAction(createRemoteClipboardUpdateAction());
+        assistantActions.setScreenshotRequestAction(createScreenshotRequestAction());
         assistantActions.setStartAction(createStartAction());
         assistantActions.setStopAction(createStopAction());
         assistantActions.setToggleCompatibilityModeAction(createToggleCompatibilityModeAction());
         return assistantActions;
     }
 
+    private void clearToken() {
+        TOKEN.reset();
+        JButton button = (JButton) frame.getActions().getTokenAction().getValue("button");
+        if (button != null) {
+            button.setText("");
+            button.setToolTipText(translate("token.create.msg"));
+        }
+        frame.resetConnectionIndicators();
+    }
+
     private void stopNetwork() {
         frame.hideSpinner();
-        network.cancel();
+        networkEngine.cancel();
     }
 
     @Override
     public void lostOwnership(Clipboard clipboard, Transferable transferable) {
-        Log.error("Lost clipboard ownership");
+        Log.debug("Lost clipboard ownership");
     }
 
     private Action createWhatIsMyIpAction() {
         final Action ip = new AbstractAction() {
-            private String publicIp;
-
             @Override
             public void actionPerformed(ActionEvent ev) {
                 final JButton button = (JButton) ev.getSource();
                 final JPopupMenu choices = new JPopupMenu();
 
+                final JMenuItem publicIpItem = new JMenuItem(translate("ipAddressPublic", publicIp));
+                publicIpItem.addActionListener(ev15 -> {
+                    button.setText(publicIp);
+                    setActiveIp(publicIp);
+                });
+                choices.add(publicIpItem);
+
                 if (publicIp == null) {
-                    final JMenuItem menuItem = new JMenuItem(translate("retrieveMe"));
-                    menuItem.addActionListener(ev16 -> {
-                        final Cursor cursor = frame.getCursor();
-                        frame.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
-                        try {
-                            resolvePublicIp();
-                            if (publicIp != null) {
-                                button.setText(publicIp);
-                            }
-                        } catch (IOException ex) {
-                            Log.error("Could not determine public IP", ex);
-                            JOptionPane.showMessageDialog(frame, translate("ipAddress.msg2"), translate("ipAddress"),
-                                    JOptionPane.ERROR_MESSAGE);
-                        } finally {
-                            frame.setCursor(cursor);
+                    CompletableFuture.supplyAsync(networkEngine::resolvePublicIp).thenAcceptAsync(ip -> {
+                        if (ip != null) {
+                            button.setText(ip);
+                            publicIp = ip;
+                            publicIpItem.setText(translate("ipAddressPublic", ip));
+                        } else {
+                            JOptionPane.showMessageDialog(frame, translate("ipAddress.msg2"), translate("ipAddress"), JOptionPane.ERROR_MESSAGE);
                         }
                     });
-                    choices.add(menuItem);
-                } else {
-                    final JMenuItem menuItem = new JMenuItem(translate("ipAddressPublic", publicIp));
-                    menuItem.addActionListener(ev15 -> button.setText(publicIp));
-                    choices.add(menuItem);
                 }
 
-                final List<String> addrs = NetworkUtilities.getInetAddresses();
-                addrs.stream().map(JMenuItem::new).forEach(menuItem -> {
-                    menuItem.addActionListener(ev14 -> button.setText(menuItem.getText()));
-                    choices.add(menuItem);
+                NetworkUtilities.getInetAddresses().stream().map(JMenuItem::new).forEach(item -> {
+                    item.addActionListener(ev14 -> {
+                        String address = item.getText().split("%", 2)[0];
+                        button.setText(address);
+                        setActiveIp(address);
+                    });
+                    choices.add(item);
                 });
 
                 choices.addSeparator();
@@ -248,140 +277,43 @@ public class Assistant implements ClipboardOwner {
                 choices.show(frame, where.x, where.y);
                 final Point frameLocation = frame.getLocationOnScreen();
                 final Point toolbarLocation = frame.getToolBar().getLocationOnScreen();
-                choices.setLocation(frameLocation.x + 10, toolbarLocation.y + frame.getToolBar().getHeight());
+                choices.setLocation(frameLocation.x + 20, toolbarLocation.y + frame.getToolBar().getHeight());
             }
 
-            private void resolvePublicIp() throws IOException {
-                final URL url = new URL(WHATSMYIP_SERVER_URL);
-                try (final BufferedReader lines = new BufferedReader(new InputStreamReader(url.openStream()))) {
-                    publicIp = lines.readLine();
+            private void setActiveIp(String address) {
+                if (!address.equals(activeIp)) {
+                    if (activeIp != null || !address.equals(publicIp)) {
+                        clearToken();
+                    }
+                    activeIp = address;
                 }
             }
         };
-        ip.putValue("DISPLAY_NAME", "127.0.0.1"); // always a selection
         // ...
         ip.putValue(Action.SHORT_DESCRIPTION, translate("ipAddress.msg1"));
         ip.putValue(Action.SMALL_ICON, getOrCreateIcon(ImageNames.NETWORK_ADDRESS));
         return ip;
     }
 
-
     private JMenuItem getJMenuItemCopyIpAndPort(JButton button) {
         final JMenuItem menuItem = new JMenuItem(translate("copy.msg"));
         menuItem.addActionListener(ev12 -> {
             final String url = button.getText() + " " + networkConfiguration.getPort();
-            final StringSelection value = new StringSelection(url);
-            final Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-            clipboard.setContents(value, this);
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(url), this);
         });
         return menuItem;
     }
 
-    private Action createNetworkAssistantConfigurationAction(Assistant assistant) {
-        final Action conf = new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent ev) {
-                JFrame networkFrame = (JFrame) SwingUtilities.getRoot((Component) ev.getSource());
-                String upnpActive = valueOf(assistant.isUpnpEnabled());
-
-                final JPanel pane = new JPanel();
-                pane.setLayout(new GridLayout(4, 1, 10, -10));
-                final JPanel subPane = new JPanel();
-                subPane.setLayout(new GridLayout(1, 2, 10, 10));
-                final JLabel portNumberLbl = new JLabel(translate("connection.settings.portNumber"));
-                portNumberLbl.setToolTipText(translate("connection.settings.portNumber.tooltip"));
-                final JTextField portNumberTextField = new JTextField();
-                portNumberTextField.setText(valueOf(networkConfiguration.getPort()));
-                final JLabel upnpStatus = new JLabel(format(translate(format("connection.settings.upnp.%s", upnpActive)), UPnP.getDefaultGatewayIP()));
-                final JLabel upnpHint = new JLabel(translate(format("connection.settings.portforward.%s", upnpActive)));
-                subPane.add(portNumberLbl);
-                subPane.add(portNumberTextField);
-                pane.add(upnpStatus);
-                pane.add(upnpHint);
-                pane.add(new JLabel(""));
-                pane.add(subPane);
-
-                final boolean ok = DialogFactory.showOkCancel(networkFrame, translate("connection.network"), pane, true, () -> {
-                    final String portNumber = portNumberTextField.getText();
-                    if (portNumber.isEmpty()) {
-                        return translate("connection.settings.emptyPortNumber");
-                    }
-                    return isValidPortNumber(portNumber) ? null : translate("connection.settings.invalidPortNumber");
-                });
-
-                if (ok) {
-                    final NetworkAssistantEngineConfiguration newNetworkConfiguration = new NetworkAssistantEngineConfiguration(
-                            Integer.parseInt(portNumberTextField.getText()));
-
-                    if (!newNetworkConfiguration.equals(networkConfiguration)) {
-                        network.manageRouterPorts(networkConfiguration.getPort(), newNetworkConfiguration.getPort());
-                        networkConfiguration = newNetworkConfiguration;
-                        networkConfiguration.persist();
-                        network.reconfigure(networkConfiguration);
-                    }
-                }
-            }
-        };
-        conf.putValue(Action.NAME, margin(translate("connection.network")));
-        conf.putValue(Action.SHORT_DESCRIPTION, translate("connection.settings"));
-        conf.putValue(Action.SMALL_ICON, getOrCreateIcon(ImageNames.NETWORK_SETTINGS));
-        return conf;
-    }
-
     private Action createRemoteClipboardRequestAction() {
-        final Action getRemoteClipboard = new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent ev) {
-                sendRemoteClipboardRequest();
-            }
-        };
-        getRemoteClipboard.putValue(Action.SHORT_DESCRIPTION, translate("clipboard.getRemote"));
-        getRemoteClipboard.putValue(Action.SMALL_ICON, getOrCreateIcon(ImageNames.DOWN));
-        return getRemoteClipboard;
+        return createSimpleAction(this::sendRemoteClipboardRequest, "clipboard.getRemote", ImageNames.DOWN, true);
     }
 
     private Action createRemoteClipboardUpdateAction() {
-        final Action setRemoteClipboard = new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent ev) {
-                sendLocalClipboard();
-            }
-        };
-        setRemoteClipboard.putValue(Action.SHORT_DESCRIPTION, translate("clipboard.setRemote"));
-        setRemoteClipboard.putValue(Action.SMALL_ICON, getOrCreateIcon(ImageNames.UP));
-        return setRemoteClipboard;
+        return createSimpleAction(this::sendLocalClipboard, "clipboard.setRemote", ImageNames.UP, true);
     }
 
     private void sendLocalClipboard() {
-        Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-        Transferable content = clipboard.getContents(this);
-
-        if (content == null) return;
-
-        try {
-            if (content.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
-                // noinspection unchecked
-                List<File> files = (List<File>) clipboard.getData(DataFlavor.javaFileListFlavor);
-                if (!files.isEmpty()) {
-                    final long totalFilesSize = FileUtilities.calculateTotalFileSize(files);
-                    Log.debug("Clipboard contains files with size: " + totalFilesSize);
-                    // Ok as very few of that (!)
-                    new Thread(() -> network.sendClipboardFiles(files, totalFilesSize, files.get(0).getParent()), "sendClipboardFiles").start();
-                    frame.onClipboardSending();
-                }
-            } else if (content.isDataFlavorSupported(DataFlavor.stringFlavor)) {
-                String text = valueOf(clipboard.getData(DataFlavor.stringFlavor));
-                Log.debug("Clipboard contains text: " + text);
-                // Ok as very few of that (!)
-                new Thread(() -> network.sendClipboardText(text), "sendClipboardText").start();
-                frame.onClipboardSending();
-            } else {
-                Log.debug("Clipboard contains no supported data");
-            }
-        } catch (IOException | UnsupportedFlavorException ex) {
-            Log.error("Clipboard error " + ex.getMessage());
-            frame.onClipboardSent();
-        }
+        ClipboardDispatcher.sendClipboard(networkEngine, frame, this);
     }
 
     /**
@@ -391,7 +323,7 @@ public class Assistant implements ClipboardOwner {
         Log.info("Requesting remote clipboard");
         frame.onClipboardRequested();
         // Ok as very few of that (!)
-        new Thread(network::sendRemoteClipboardRequest, "RemoteClipboardRequest").start();
+        new Thread(networkEngine::sendRemoteClipboardRequest, "RemoteClipboardRequest").start();
     }
 
     private Action createCaptureConfigurationAction() {
@@ -402,51 +334,96 @@ public class Assistant implements ClipboardOwner {
                 JFrame captureFrame = (JFrame) SwingUtilities.getRoot((Component) ev.getSource());
 
                 final JPanel pane = new JPanel();
-                pane.setLayout(new GridLayout(2, 2, 10, 10));
+                pane.setLayout(new GridLayout(3, 2, 10, 10));
 
                 final JLabel tickLbl = new JLabel(translate("tick"));
                 tickLbl.setToolTipText(translate("tick.tooltip"));
-                final JTextField tickTextField = new JTextField();
-                tickTextField.setText(valueOf(captureEngineConfiguration.getCaptureTick()));
+                final JSlider tickMillisSlider = new JSlider(HORIZONTAL, 50, 1000, captureEngineConfiguration.getCaptureTick());
+                final Properties tickLabelTable = new Properties(3);
+                JLabel actualTick = new JLabel(format("  %dms  ", tickMillisSlider.getValue()));
+                tickLabelTable.put(50, new JLabel(translate("min")));
+                tickLabelTable.put(550, actualTick);
+                tickLabelTable.put(1000, new JLabel(translate("max")));
+                tickMillisSlider.setLabelTable(tickLabelTable);
+                tickMillisSlider.setMajorTickSpacing(50);
+                tickMillisSlider.setPaintTicks(true);
+                tickMillisSlider.setPaintLabels(true);
                 pane.add(tickLbl);
-                pane.add(tickTextField);
+                pane.add(tickMillisSlider);
 
                 final JLabel grayLevelsLbl = new JLabel(translate("grays"));
-                final JComboBox<Gray8Bits> grayLevelsCb = new JComboBox<>(Gray8Bits.values());
-                grayLevelsCb.setSelectedItem(captureEngineConfiguration.getCaptureQuantization());
-                pane.add(grayLevelsLbl);
-                pane.add(grayLevelsCb);
+                final JSlider grayLevelsSlider = new JSlider(HORIZONTAL, 0, 6, 6 - captureEngineConfiguration.getCaptureQuantization().ordinal());
+                final Properties grayLabelTable = new Properties(3);
+                JLabel actualLevels = new JLabel(format("  %d  ", toGrayLevel(grayLevelsSlider.getValue()).getLevels()));
+                if (!networkConfiguration.isMonochromePeer()) {
+                    grayLabelTable.put(0, new JLabel(translate("min")));
+                    grayLabelTable.put(3, actualLevels);
+                } else {
+                    grayLabelTable.put(3, new JLabel(translate("min")));
+                    grayLevelsSlider.setMinimum(3);
+                }
+                grayLabelTable.put(6, new JLabel(translate("max")));
+                grayLevelsSlider.setLabelTable(grayLabelTable);
+                grayLevelsSlider.setMajorTickSpacing(1);
+                grayLevelsSlider.setPaintTicks(true);
+                grayLevelsSlider.setPaintLabels(true);
+                grayLevelsSlider.setSnapToTicks(true);
+                pane.add(grayLevelsLbl).setEnabled(!captureEngineConfiguration.isCaptureColors());
+                pane.add(grayLevelsSlider).setEnabled(!captureEngineConfiguration.isCaptureColors());
 
-                final boolean ok = DialogFactory.showOkCancel(captureFrame, translate("capture"), pane, true, () -> {
-                    final String tick = tickTextField.getText();
-                    if (tick.isEmpty()) {
-                        return translate("tick.msg1");
+                final JLabel colorsLbl = new JLabel(translate("colors"));
+                final JCheckBox colorsCb = new JCheckBox();
+                colorsCb.setSelected(captureEngineConfiguration.isCaptureColors());
+                pane.add(colorsLbl).setEnabled(!networkConfiguration.isMonochromePeer());
+                pane.add(colorsCb).setEnabled(!networkConfiguration.isMonochromePeer());
+
+                final AtomicBoolean dirty = new AtomicBoolean(false);
+                tickMillisSlider.addChangeListener(e -> {
+                    actualTick.setText(tickMillisSlider.getValue() < 1000 ? format("%dms", tickMillisSlider.getValue()) : "1s");
+                    if (!tickMillisSlider.getValueIsAdjusting()) {
+                        sendCaptureConfiguration(new CaptureEngineConfiguration(tickMillisSlider.getValue(),
+                                toGrayLevel(grayLevelsSlider.getValue()), captureEngineConfiguration.isCaptureColors()));
                     }
-                    try {
-                        if (Integer.parseInt(tick) < 50) {
-                            return translate("tick.msg2");
-                        }
-                    } catch (NumberFormatException ex) {
-                        return translate("tick.msg2");
+                });
+                grayLevelsSlider.addChangeListener(e -> {
+                    actualLevels.setText(format("%d", toGrayLevel(grayLevelsSlider.getValue()).getLevels()));
+                    if (!grayLevelsSlider.getValueIsAdjusting() && !captureEngineConfiguration.isCaptureColors()) {
+                        sendCaptureConfiguration(new CaptureEngineConfiguration(tickMillisSlider.getValue(),
+                                toGrayLevel(grayLevelsSlider.getValue()), false));
                     }
-                    return null;
+                });
+                colorsCb.addActionListener(e -> {
+                    grayLevelsLbl.setEnabled(!colorsCb.isSelected());
+                    grayLevelsSlider.setEnabled(!colorsCb.isSelected());
+                    dirty.set(true); // colors changed, will need to send new configuration to the assisted after ok has been clicked
                 });
 
+                final boolean ok = DialogFactory.showOkCancel(captureFrame, translate("capture"), pane, true, null);
+
                 if (ok) {
-                    final CaptureEngineConfiguration newCaptureEngineConfiguration = new CaptureEngineConfiguration(Integer.parseInt(tickTextField.getText()),
-                            (Gray8Bits) grayLevelsCb.getSelectedItem());
-                    if (!newCaptureEngineConfiguration.equals(captureEngineConfiguration)) {
-                        captureEngineConfiguration = newCaptureEngineConfiguration;
-                        captureEngineConfiguration.persist();
-                        sendCaptureConfiguration(captureEngineConfiguration);
-                    }
+                    final CaptureEngineConfiguration newCaptureEngineConfiguration = new CaptureEngineConfiguration(tickMillisSlider.getValue(),
+                            toGrayLevel(grayLevelsSlider.getValue()), colorsCb.isSelected());
+                    updateCaptureConfiguration(newCaptureEngineConfiguration, dirty.get());
                 }
             }
         };
-        configure.putValue(Action.NAME, margin(translate("capture")));
         configure.putValue(Action.SHORT_DESCRIPTION, translate("capture.settings"));
         configure.putValue(Action.SMALL_ICON, getOrCreateIcon(ImageNames.CAPTURE_SETTINGS));
         return configure;
+    }
+
+    private void updateCaptureConfiguration(CaptureEngineConfiguration newCaptureEngineConfiguration, boolean isDirty) {
+        if (!newCaptureEngineConfiguration.equals(captureEngineConfiguration)) {
+            captureEngineConfiguration = newCaptureEngineConfiguration;
+            captureEngineConfiguration.persist();
+            if (isDirty) {
+                sendCaptureConfiguration(captureEngineConfiguration);
+            }
+        }
+    }
+
+    private static Gray8Bits toGrayLevel(int value) {
+        return Gray8Bits.values()[6 - value];
     }
 
     /**
@@ -454,7 +431,7 @@ public class Assistant implements ClipboardOwner {
      */
     private void sendCaptureConfiguration(final CaptureEngineConfiguration captureEngineConfiguration) {
         // Ok as very few of that (!)
-        new Thread(() -> network.sendCaptureConfiguration(captureEngineConfiguration), "CaptureEngineSettingsSender").start();
+        new Thread(() -> networkEngine.sendCaptureConfiguration(captureEngineConfiguration), "CaptureEngineSettingsSender").start();
     }
 
     private Action createCompressionConfigurationAction() {
@@ -533,13 +510,12 @@ public class Assistant implements ClipboardOwner {
                 }
             }
         };
-        configure.putValue(Action.NAME, margin(translate("compression")));
         configure.putValue(Action.SHORT_DESCRIPTION, translate("compression.settings"));
         configure.putValue(Action.SMALL_ICON, getOrCreateIcon(ImageNames.COMPRESSION_SETTINGS));
         return configure;
     }
 
-    private String validatePurgeValue(JTextField purgeSizeTf, int maxValue) {
+    private static String validatePurgeValue(JTextField purgeSizeTf, int maxValue) {
         final String purge = purgeSizeTf.getText();
         if (purge.isEmpty()) {
             return translate("compression.cache.purge.msg1");
@@ -564,20 +540,11 @@ public class Assistant implements ClipboardOwner {
      */
     private void sendCompressorConfiguration(final CompressorEngineConfiguration compressorEngineConfiguration) {
         // Ok as very few of that (!)
-        new Thread(() -> network.sendCompressorConfiguration(compressorEngineConfiguration), "CompressorEngineSettingsSender").start();
+        new Thread(() -> networkEngine.sendCompressorConfiguration(compressorEngineConfiguration), "CompressorEngineSettingsSender").start();
     }
 
     private Action createResetAction() {
-        final Action configure = new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent ev) {
-                // Currently making a RESET within the assisted ...
-                sendCaptureConfiguration(captureEngineConfiguration);
-            }
-        };
-        configure.putValue(Action.SHORT_DESCRIPTION, translate("capture.reset"));
-        configure.putValue(Action.SMALL_ICON, getOrCreateIcon(ImageNames.RESET_CAPTURE));
-        return configure;
+        return createSimpleAction(() -> sendCaptureConfiguration(captureEngineConfiguration), "capture.reset", ImageNames.RESET_CAPTURE, true);
     }
 
     private Action createTokenAction() {
@@ -586,61 +553,82 @@ public class Assistant implements ClipboardOwner {
             @Override
             public void actionPerformed(ActionEvent ev) {
                 final JButton button = (JButton) ev.getSource();
-
-                if (token == null) {
-                    final Cursor cursor = frame.getCursor();
-                    frame.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+                this.putValue("button", button);
+                frame.onRequestingToken();
+                CompletableFuture.supplyAsync(() -> {
+                    if (publicIp == null && activeIp == null) {
+                        publicIp = networkEngine.resolvePublicIp();
+                    }
                     try {
-                        final URL url = new URL(format(tokenServerUrl, networkConfiguration.getPort()));
-                        try (final BufferedReader lines = new BufferedReader(new InputStreamReader(url.openStream()))) {
-                            token = lines.readLine();
-                        }
-                    } catch (IOException ex) {
+                        requestToken();
+                    } catch (IOException | InterruptedException | SecurityException ex) {
                         Log.error("Could not obtain token", ex);
-                        JOptionPane.showMessageDialog(frame, translate("token.create.error.msg"), translate("token"),
-                                JOptionPane.ERROR_MESSAGE);
-                    } finally {
-                        frame.setCursor(cursor);
+                        JOptionPane.showMessageDialog(frame, translate("token.create.error.msg"), translate("connection.settings.token"), JOptionPane.ERROR_MESSAGE);
+                        if (ex instanceof InterruptedException) {
+                            Thread.currentThread().interrupt();
+                        }
                     }
-                    if (token != null) {
-                        button.setText(format(" %s ", token));
-                        button.setToolTipText(translate("token.copy.msg"));
+                    Log.debug("Current publicIp: " + publicIp + ", activeIp: " + activeIp);
+                    return TOKEN;
+                }).thenAcceptAsync(token -> {
+                    if (token.getTokenString() != null) {
+                        button.setText(format(" %s", token.getTokenString()));
+                        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(token.getTokenString()), null);
                     }
-                }
-                final StringSelection value = new StringSelection(token);
-                final Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-                clipboard.setContents(value, value);
+                    frame.onReady();
+                });
             }
         };
+        tokenAction.putValue("token", TOKEN.getTokenString());
         tokenAction.putValue(Action.SHORT_DESCRIPTION, translate("token.create.msg"));
         tokenAction.putValue(Action.SMALL_ICON, getOrCreateIcon(ImageNames.KEY));
         return tokenAction;
     }
 
-    private Action createStartAction() {
-        final Action startAction = new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent ev) {
-                new Assistant.NetWorker().execute();
+    private void requestToken() throws IOException, InterruptedException, SecurityException {
+        if (!compatibilityModeActive.get() && publicIp != null && (publicIp.equals(activeIp) || activeIp == null)) {
+            boolean closed = !networkEngine.selfTest(publicIp, networkConfiguration.getPort());
+            String iceInfo = null;
+            if (closed) {
+                networkEngine.initIceAgent();
+                iceInfo = networkEngine.getLocalSdpDesc();
             }
-        };
-        startAction.setEnabled(false);
-        startAction.putValue(Action.SHORT_DESCRIPTION, translate("start.session"));
-        startAction.putValue(Action.SMALL_ICON, getOrCreateIcon(ImageNames.START));
-        return startAction;
+            Log.debug("Port is " + (closed ? "closed" : "open"));
+            getToken(closed, networkEngine.getLocalAddress(), activeIp, iceInfo);
+        } else {
+            Log.debug("Assuming port is open");
+            isOwnPortAccessible.set(true);
+            getToken(false, networkEngine.getLocalAddress(), activeIp, null);
+        }
+    }
+
+    private void getToken(boolean closed, String localAddress, String activeAddress, String iceInfo) throws IOException, InterruptedException, SecurityException {
+        String query = format(tokenServerUrl, networkConfiguration.getPort(), closed ? 1 : 0, nullToZeroStr(localAddress));
+        if (activeAddress != null && !activeAddress.equals(publicIp)) {
+            query += "&addr=" + activeAddress;
+        }
+        if (iceInfo != null) {
+            query += "&ice=" + iceInfo;
+        }
+        Log.debug("Requesting token using: " + query);
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(query))
+                .header("User-Agent", USER_AGENT)
+                .timeout(Duration.ofSeconds(5))
+                .build();
+        TOKEN.setTokenString(limit(HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString()).body()));
+    }
+
+    private String limit(String string) {
+        return string == null ? null : string.substring(0, Math.min(string.trim().length(), 10));
+    }
+
+    private Action createStartAction() {
+        return createSimpleAction(() -> new NetWorker().execute(), "start.session", ImageNames.START, false);
     }
 
     private Action createStopAction() {
-        final Action stopAction = new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent ev) {
-                stopNetwork();
-            }
-        };
-        stopAction.setEnabled(false);
-        stopAction.putValue(Action.SHORT_DESCRIPTION, translate("stop.session"));
-        stopAction.putValue(Action.SMALL_ICON, getOrCreateIcon(ImageNames.STOP));
-        return stopAction;
+        return createSimpleAction(this::stopNetwork, "stop.session", ImageNames.STOP, false);
     }
 
     private Action createToggleCompatibilityModeAction() {
@@ -648,6 +636,11 @@ public class Assistant implements ClipboardOwner {
             @Override
             public void actionPerformed(ActionEvent ev) {
                 compatibilityModeActive.set(!compatibilityModeActive.get());
+                clearToken();
+                if (compatibilityModeActive.get()) {
+                    JOptionPane.showMessageDialog(frame, translate("compatibility.mode.info"),
+                            translate("compatibility.mode.active"), JOptionPane.WARNING_MESSAGE);
+                }
                 frame.repaint();
             }
         };
@@ -665,9 +658,9 @@ public class Assistant implements ClipboardOwner {
         languageSelection.setSelectedItem(Arrays.stream(Language.values()).filter(e -> e.getShortName().equals(Locale.getDefault().getLanguage())).findFirst().orElse(Language.EN));
         languageSelection.setRenderer(new LanguageRenderer());
         languageSelection.addActionListener(ev -> {
-                Locale.setDefault(new Locale(languageSelection.getSelectedItem().toString()));
+                Locale.setDefault(Locale.forLanguageTag(valueOf(languageSelection.getSelectedItem())));
                 Log.info(format("New language %s", Locale.getDefault().getLanguage()));
-                configuration = new AssistantConfiguration(getDefaultLookAndFeel(), Locale.getDefault().getLanguage());
+                configuration = new AssistantConfiguration(Locale.getDefault().getLanguage());
                 configuration.persist();
                 initGui();
             }
@@ -683,6 +676,10 @@ public class Assistant implements ClipboardOwner {
         }
     }
 
+    private Action createScreenshotRequestAction() {
+        return createSimpleAction(() -> new Thread(networkEngine::sendScreenshotRequest, "ScreenshotRequest").start(), "send.prtScrKey", ImageNames.CAM, false);
+    }
+
     private class NetWorker extends SwingWorker<String, String> {
         @Override
         protected String doInBackground() {
@@ -694,7 +691,14 @@ public class Assistant implements ClipboardOwner {
 
         private void startNetwork() {
             frame.onGettingReady();
-            network.start(compatibilityModeActive.get());
+            if (publicIp == null) {
+                publicIp = networkEngine.resolvePublicIp();
+            }
+            // only show warning if started without token
+            if (TOKEN.getTokenString() == null && !networkEngine.selfTest(publicIp, networkConfiguration.getPort())) {
+                JOptionPane.showMessageDialog(frame, translate("port.error.msg1", networkConfiguration.getPort(), networkConfiguration.getPort()), translate("port.error"), JOptionPane.WARNING_MESSAGE);
+            }
+            networkEngine.start(compatibilityModeActive.get(), TOKEN);
         }
 
         @Override
@@ -711,18 +715,6 @@ public class Assistant implements ClipboardOwner {
         }
     }
 
-    private void initUpnp() {
-        CompletableFuture.supplyAsync(() -> {
-            upnpEnabled = UPnP.isUPnPAvailable();
-            Log.info(format("UPnP is %s", isUpnpEnabled() ? "enabled" : "disabled"));
-            return upnpEnabled;
-        });
-    }
-
-    private String margin(String in) {
-        return format(" %s", in);
-    }
-
     private class MyDeCompressorEngineListener implements DeCompressorEngineListener {
         /**
          * Called from within THE de-compressor engine thread => prevBuffer
@@ -735,18 +727,17 @@ public class Assistant implements ClipboardOwner {
             synchronized (prevBufferLOCK) {
                 image = capture.createBufferedImage(prevBuffer, prevWidth, prevHeight);
                 prevBuffer = image.getValue();
-                // set to capture.getWidth()/getHeight() to visualize changed tiles only
                 prevWidth = image.getKey().getWidth();
                 prevHeight = image.getKey().getHeight();
             }
             if (frame.getFitToScreenActivated()) {
                 if (frame.getCanvas() == null) {
-                    Log.debug(format("ComputeScaleFactors for w: %s h: %s", prevWidth, prevHeight));
-                    frame.computeScaleFactors(prevWidth, prevHeight, frame.getKeepAspectRatioActivated());
+                    frame.computeScaleFactors(prevWidth, prevHeight);
                 }
                 // required as the canvas might have been reset if keepAspectRatio caused a resizing of the window
-                if (frame.getCanvas() != null) {
-                    frame.onCaptureUpdated(scaleImage(image.getKey(), frame.getCanvas().width, frame.getCanvas().height));
+                final Dimension canvasDimension = frame.getCanvas();
+                if (canvasDimension != null) {
+                    frame.onCaptureUpdated(scaleImage(image.getKey(), canvasDimension.width, canvasDimension.height));
                 }
             } else {
                 frame.onCaptureUpdated(image.getKey());
@@ -755,13 +746,14 @@ public class Assistant implements ClipboardOwner {
             skippedTileCounter.add(capture.getSkipped());
             mergedTileCounter.add(capture.getMerged());
             captureCompressionCounter.add(capture.getDirtyTileCount(), compressionRatio);
+            captureRateCounter.add(1);
         }
 
         private BufferedImage scaleImage(BufferedImage image, int width, int height) {
             AffineTransform scaleTransform = AffineTransform.getScaleInstance(frame.getxFactor(), frame.getyFactor());
             try {
                 AffineTransformOp bilinearScaleOp = new AffineTransformOp(scaleTransform, AffineTransformOp.TYPE_BILINEAR);
-                return bilinearScaleOp.filter(image, new BufferedImage(abs(width), abs(height), image.getType()));
+                return bilinearScaleOp.filter(image, new BufferedImage(abs(width), abs(height), image.getType() == 0 ? TYPE_INT_ARGB_PRE : TYPE_BYTE_GRAY));
             } catch (ImagingOpException e) {
                 Log.error(e.getMessage());
                 return image;
@@ -780,8 +772,8 @@ public class Assistant implements ClipboardOwner {
          * Should not block as called from the network receiving thread (!)
          */
         @Override
-        public void onStarting(int port) {
-            frame.onHttpStarting(port);
+        public void onStarting(int port, boolean isPortAccessible) {
+            frame.onHttpStarting(port, isPortAccessible);
             synchronized (prevBufferLOCK) {
                 prevBuffer = null;
                 prevWidth = -1;
@@ -789,23 +781,45 @@ public class Assistant implements ClipboardOwner {
             }
         }
 
-        /**
-         * Should not block as called from the network receiving thread (!)
-         */
         @Override
-        public boolean onAccepted(Socket connection) {
-            return frame.onAccepted(connection);
+        public void onCheckingPeerStatus(boolean active) {
+            frame.onCheckingPeerStatus(active);
+        }
+
+        @Override
+        public void onPeerIsAccessible(String address, int port, boolean isPeerAccessible) {
+            if (!isPeerAccessible) {
+                frame.onHttpStarting(port, false);
+            }
+            frame.onPeerIsAccessible(address, port, isPeerAccessible);
         }
 
         /**
          * Should not block as called from the network receiving thread (!)
          */
         @Override
-        public void onConnected(Socket connection) {
+        public boolean onAccepted(Socket connection, boolean autoAccept) {
+            return frame.onAccepted(connection, autoAccept);
+        }
+
+        /**
+         * Should not block as called from the network receiving thread (!)
+         */
+        @Override
+        public void onConnected(Socket connection, char osId, String inputLocale, int peerMajorVersion) {
+            assureCompatibility(peerMajorVersion);
             sendCaptureConfiguration(captureEngineConfiguration);
             sendCompressorConfiguration(compressorEngineConfiguration);
             frame.resetCanvas();
-            frame.onSessionStarted();
+            frame.onSessionStarted(osId, inputLocale, peerMajorVersion);
+        }
+
+        private void assureCompatibility(int peerMajorVersion) {
+            if (!Version.isColoredVersion(peerMajorVersion) && (captureEngineConfiguration.isCaptureColors() || captureEngineConfiguration.getCaptureQuantization().getLevels() < Gray8Bits.X_32.getLevels())) {
+                Log.warn(format("Pre color v%d.x.x peer detected: CaptureEngineConfiguration adjusted to %s", peerMajorVersion, Gray8Bits.X_128));
+                captureEngineConfiguration = new CaptureEngineConfiguration(captureEngineConfiguration.getCaptureTick(), Gray8Bits.X_128, false);
+                captureEngineConfiguration.persist();
+            }
         }
 
         @Override
@@ -845,7 +859,12 @@ public class Assistant implements ClipboardOwner {
          */
         @Override
         public void onResizeScreen(int width, int height) {
-            frame.computeScaleFactors(width, height, false);
+            frame.computeScaleFactors(width, height);
+        }
+
+        @Override
+        public void onSessionInterrupted() {
+            frame.onSessionInterrupted();
         }
 
         /**
@@ -854,18 +873,34 @@ public class Assistant implements ClipboardOwner {
         @Override
         public void onDisconnecting() {
             frame.onDisconnecting();
+            networkConfiguration.setMonochromePeer(false);
         }
 
         @Override
         public void onTerminating() {
             Log.info("Session got terminated by peer");
             frame.onTerminating();
+            networkConfiguration.setMonochromePeer(false);
         }
 
         @Override
         public void onIOError(IOException error) {
             frame.onIOError(error);
+            networkConfiguration.setMonochromePeer(false);
         }
 
+        @Override
+        public void onReconfigured(NetworkAssistantEngineConfiguration networkEngineConfiguration) {
+            final int oldPort = networkConfiguration.getPort();
+            final String oldTokenServerUrl = networkConfiguration.getTokenServerUrl();
+            networkConfiguration = networkEngineConfiguration;
+            if (!oldTokenServerUrl.equals(networkConfiguration.getTokenServerUrl())) {
+                updateTokenServerUrl(networkConfiguration.getTokenServerUrl());
+            }
+            Log.debug("Reconfigured: " + networkConfiguration);
+            if (oldPort != networkConfiguration.getPort() || !oldTokenServerUrl.equals(networkConfiguration.getTokenServerUrl())) {
+                clearToken();
+            }
+        }
     }
 }

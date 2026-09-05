@@ -29,7 +29,7 @@ public interface NetworkAssistedEngineListener extends Listener {
 	/**
 	 * Should not block as called from the network receiving thread (!)
 	 */
-	void onConnected(String fingerprints);
+	void onConnected(String fingerprints, boolean iceRevertedConnection);
 
 	/**
 	 * Should not block as called from the network receiving thread (!)
@@ -41,4 +41,11 @@ public interface NetworkAssistedEngineListener extends Listener {
 	 */
 	void onIOError(IOException error);
 
+	void onReconfigured(NetworkAssistedEngineConfiguration configuration);
+
+    void onPeerIsAccessible(boolean isPeerAccessible);
+
+	void onAccepting(int port);
+
+	void onIceConnecting();
 }

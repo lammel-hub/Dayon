@@ -31,12 +31,11 @@ public final class ImageUtilities {
                 } else {
                     icon = new ImageIcon(ImageUtilities.class.getResource("/images/" + name));
                 }
-            } catch (NullPointerException | IOException | IllegalArgumentException ex) {
+            } catch (IOException | IllegalArgumentException ex) {
                 throw new IllegalStateException(format("Missing icon [%s].", rname));
             }
             ICON_CACHE.put(name, icon);
         }
         return icon;
     }
-
 }

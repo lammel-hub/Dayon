@@ -10,8 +10,6 @@ import mpo.dayon.common.gui.common.Position;
 public class CaptureTile {
 	public static final CaptureTile MISSING = new CaptureTile();
 
-	private final int captureId;
-
 	private final int id;
 
 	private final long checksum;
@@ -26,6 +24,8 @@ public class CaptureTile {
 
 	private final byte singleLevel;
 
+	private int referenceCount = 0;
+
 	/**
 	 * Created from a cache - testing purpose - I've to identify that kind of
 	 * tile as the Adler32 is not perfect and from time to time I've a few
@@ -35,7 +35,6 @@ public class CaptureTile {
 	private final boolean fromCache;
 
 	private CaptureTile() {
-		this.captureId = -1;
 		this.id = -1;
 		this.checksum = -1;
 		this.position = new Position(-1, -1);
@@ -46,8 +45,7 @@ public class CaptureTile {
 		this.fromCache = false;
 	}
 
-	public CaptureTile(int captureId, int id, long checksum, Position position, int width, int height, byte[] capture) {
-		this.captureId = captureId;
+	public CaptureTile(int id, long checksum, Position position, int width, int height, byte[] capture) {
 		this.id = id;
 		this.checksum = checksum;
 		this.position = position;
@@ -61,17 +59,13 @@ public class CaptureTile {
 	/**
 	 * Assisted to assistant : result of network data decompression.
 	 */
-	public CaptureTile(int captureId, int id, XYWH xywh, MemByteBuffer capture) {
-		this.captureId = captureId;
+	public CaptureTile(int id, XYWH xywh, MemByteBuffer capture) {
 		this.id = id;
 		this.checksum = computeChecksum(capture.getInternal(), 0, capture.size()); // cache usage (!)
 		this.position = new Position(xywh.x, xywh.y);
 		this.width = xywh.w;
 		this.height = xywh.h;
 		this.capture = capture;
-		if (width * height != capture.size()) {
-			throw new IllegalArgumentException("Ouch!");
-		}
 		this.singleLevel = -1;
 		this.fromCache = false;
 	}
@@ -79,14 +73,13 @@ public class CaptureTile {
 	/**
 	 * Assisted to assistant : result of network data decompression (single level tile).
 	 */
-	public CaptureTile(int captureId, int id, XYWH xywh, byte singleLevel) {
-		this.captureId = captureId;
+	public CaptureTile(int id, XYWH xywh, byte singleLevel) {
 		this.id = id;
 		this.checksum = -1;
 		this.position = new Position(xywh.x, xywh.y);
 		this.width = xywh.w;
 		this.height = xywh.h;
-		final byte[] data = new byte[width * height];
+		final byte[] data = new byte[width * height * 4];
 		Arrays.fill(data, singleLevel);
 		this.capture = new MemByteBuffer(data);
 		this.singleLevel = singleLevel;
@@ -96,18 +89,14 @@ public class CaptureTile {
 	/**
 	 * Assisted to assistant : result of network data decompression (from the cache).
 	 */
-	public CaptureTile(int captureId, int id, XYWH xywh, CaptureTile cached) {
-		this.captureId = captureId;
+	public CaptureTile(int id, XYWH xywh, CaptureTile cached) {
 		this.id = id;
 		this.checksum = -1;
 		this.position = new Position(xywh.x, xywh.y);
 		this.width = xywh.w;
 		this.height = xywh.h;
-		this.capture = (cached == MISSING) ? new MemByteBuffer(new byte[width * height]) // black image (!)
+		this.capture = (cached == MISSING) ? new MemByteBuffer(new byte[width * height * 4]) // black image (!)
 				: cached.getCapture(); // sharing it (!)
-		if (width * height != capture.size()) {
-			throw new IllegalArgumentException("Ouch!");
-		}
 		this.singleLevel = -1;
 		this.fromCache = true;
 	}
@@ -118,10 +107,6 @@ public class CaptureTile {
 		// quite good until now ...
 		checksum.update(data, offset, len);
 		return checksum.getValue();
-	}
-
-	public int getCaptureId() {
-		return captureId;
 	}
 
 	public int getId() {
@@ -163,9 +148,24 @@ public class CaptureTile {
 		return fromCache;
 	}
 
+	public synchronized void incrementReferenceCount() {
+		referenceCount++;
+	}
+
+	public synchronized void decrementReferenceCount() {
+		if (referenceCount > 0) {
+			referenceCount--;
+		}
+	}
+
+	public synchronized int getReferenceCount() {
+		return referenceCount;
+	}
+
 	private static byte computeSingleLevel(byte[] capture) {
 		final byte level = capture[0];
-		for (int idx = 1; idx < capture.length; idx++) {
+		final int captureLength = capture.length;
+		for (int idx = 1; idx < captureLength; idx++) {
 			if (capture[idx] != level) {
 				return -1; // multi-level
 			}
@@ -247,8 +247,8 @@ public class CaptureTile {
 	}
 
 	private static XYWH_Cache computeXYWH(int captureWidth, int captureHeight, int tileWidth, int tileHeight) {
-		final int x = (int) Math.ceil(captureWidth / (double) tileWidth);
-		final int y = (int) Math.ceil(captureHeight / (double) tileHeight);
+		final int x = (captureWidth + tileWidth - 1) / tileWidth;
+		final int y = (captureHeight + tileHeight - 1) / tileHeight;
 		final XYWH[] xywh = new XYWH[x * y];
 		int tileId = 0;
 		for (int ty = 0; ty < captureHeight; ty += tileHeight) {
@@ -258,7 +258,6 @@ public class CaptureTile {
 				xywh[tileId++] = new XYWH(tx, ty, tw, th);
 			}
 		}
-		final XYWH_Configuration configuration = new XYWH_Configuration(captureWidth, captureHeight, tileWidth, tileHeight);
-		return new XYWH_Cache(configuration, xywh);
+		return new XYWH_Cache(new XYWH_Configuration(captureWidth, captureHeight, tileWidth, tileHeight), xywh);
 	}
 }

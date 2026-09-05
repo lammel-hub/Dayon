@@ -8,7 +8,7 @@
     <url>https://github.com/retgal/dayon</url>
     <groupId>mpo.dayon</groupId>
     <artifactId>dayon</artifactId>
-    <version>13.0.1</version>
+    <version>18.0.0</version>
     <description>cross platform remote desktop solution</description>
     <developers>
         <developer>
@@ -17,7 +17,7 @@
             <email>reto@galante.ch</email>
         </developer>
     </developers>
-    <inceptionYear>2016-2024</inceptionYear>
+    <inceptionYear>2016-2026</inceptionYear>
     <licenses>
         <license>
             <name>GPL-3</name>
@@ -27,14 +27,15 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.source>11</maven.compiler.source>
-        <maven.compiler.target>11</maven.compiler.target>
+        <maven.compiler.release>11</maven.compiler.release>
         <dayon.mainClass>mpo.dayon.common.Runner</dayon.mainClass>
         <sonar.organization>retgal-github</sonar.organization>
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
-        <xz.version>1.9</xz.version>
-        <junit.jupiter.version>5.9.2</junit.jupiter.version>
-        <mockito.core.version>4.9.0</mockito.core.version>
+        <xz.version>1.12</xz.version>
+        <waifpunp.version>1.3.2</waifpunp.version>
+        <makeself.version>1.12.0</makeself.version>
+        <junit.jupiter.version>6.1.3</junit.jupiter.version>
+        <mockito.core.version>5.23.0</mockito.core.version>
     </properties>
 
     <repositories>
@@ -49,12 +50,17 @@
         <dependency>
             <groupId>com.dosse.upnp</groupId>
             <artifactId>WaifUPnP</artifactId>
-            <version>1.3.0</version>
+            <version>${waifpunp.version}</version>
         </dependency>
         <dependency>
             <groupId>org.tukaani</groupId>
             <artifactId>xz</artifactId>
             <version>${xz.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jitsi</groupId>
+            <artifactId>ice4j</artifactId>
+            <version>3.2-15-g6da2b08</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -87,7 +93,7 @@
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-clean-plugin</artifactId>
-                        <version>3.1.0</version>
+                        <version>3.5.0</version>
                         <executions>
                             <execution>
                                 <id>clean-package</id>
@@ -111,7 +117,7 @@
                     <plugin>
                         <groupId>com.aerse.maven</groupId>
                         <artifactId>deb-maven-plugin</artifactId>
-                        <version>1.16</version>
+                        <version>1.24</version>
                         <executions>
                             <execution>
                                 <id>create-deb</id>
@@ -126,7 +132,7 @@
                             <unixGroupId>staff</unixGroupId>
                             <installDir>/usr/bin/</installDir>
                             <osDependencies>
-                                <default-jre>>=2:1.8-56</default-jre>
+                                <default-jre>>=2:1.11</default-jre>
                             </osDependencies>
                             <javaServiceWrapper>false</javaServiceWrapper>
                             <generateVersion>false</generateVersion>
@@ -153,8 +159,12 @@
                                     <target>dayon_assisted.sh</target>
                                 </fileSet>
                                 <fileSet>
-                                    <source>${basedir}/resources/deb/</source>
-                                    <target>deb</target>
+                                    <source>${basedir}/debian/dayon_assistant.desktop</source>
+                                    <target>dayon_assistant.desktop</target>
+                                </fileSet>
+                                <fileSet>
+                                    <source>${basedir}/debian/dayon_assisted.desktop</source>
+                                    <target>dayon_assisted.desktop</target>
                                 </fileSet>
                             </fileSets>
                         </configuration>
@@ -173,16 +183,12 @@
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-compiler-plugin</artifactId>
-                        <version>3.10.1</version>
-                        <configuration>
-                            <source>${maven.compiler.source}</source>
-                            <target>${maven.compiler.target}</target>
-                        </configuration>
+                        <version>3.15.0</version>
                     </plugin>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-jar-plugin</artifactId>
-                        <version>3.2.0</version>
+                        <version>3.5.1</version>
                         <configuration>
                             <archive>
                                 <addMavenDescriptor>false</addMavenDescriptor>
@@ -202,7 +208,7 @@
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-shade-plugin</artifactId>
-                        <version>3.4.1</version>
+                        <version>3.6.2</version>
                         <executions>
                             <execution>
                                 <phase>package</phase>
@@ -210,18 +216,45 @@
                                     <goal>shade</goal>
                                 </goals>
                                 <configuration>
-                                    <minimizeJar>true</minimizeJar>
+                                    <minimizeJar>false</minimizeJar>
+                                    <transformers>
+                                        <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                            <mainClass>mpo.dayon.common.Runner</mainClass>
+                                        </transformer>
+                                    </transformers>
+                                    <artifactSet>
+                                        <excludes>
+                                            <exclude>net.java.dev.jna:*</exclude>
+                                            <exclude>com.googlecode.json-simple:*</exclude>
+                                        </excludes>
+                                    </artifactSet>
                                     <filters>
                                         <filter>
-                                            <artifact>org.tukaani:xz</artifact>
+                                            <artifact>ice4j*:*</artifact>
                                             <excludes>
-                                                <exclude>META-INF/**</exclude>
+                                                <exclude>reference.conf</exclude>
                                             </excludes>
                                         </filter>
                                         <filter>
-                                            <artifact>com.dosse.upnp:WaifUPnP</artifact>
+                                            <artifact>*</artifact>
                                             <excludes>
                                                 <exclude>META-INF/**</exclude>
+                                                <exclude>license.txt</exclude>
+                                                <exclude>gov/nist/core/net/**</exclude>
+                                                <exclude>gov/nist/javax/sip/**</exclude>
+                                                <exclude>org/bitlet/**</exclude>
+                                                <exclude>org/intellij/**</exclude>
+                                                <exclude>org/jetbrains/**</exclude>
+                                                <exclude>kotlin/**/*metadata</exclude>
+                                                <exclude>kotlin/coroutines/**</exclude>
+                                                <exclude>kotlin/comparisons/**</exclude>
+                                                <exclude>kotlin/io/encoding/**</exclude>
+                                                <exclude>kotlin/io/path/**</exclude>
+                                                <exclude>kotlin/math/**</exclude>
+                                                <exclude>kotlin/random/**</exclude>
+                                                <exclude>kotlin/reflect/jvm/internal/calls/**</exclude>
+                                                <exclude>kotlin/streams/**</exclude>
+                                                <exclude>kotlin/time/**</exclude>
                                             </excludes>
                                         </filter>
                                     </filters>
@@ -232,7 +265,7 @@
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-jarsigner-plugin</artifactId>
-                        <version>3.0.0</version>
+                        <version>3.1.0</version>
                         <executions>
                             <execution>
                                 <id>sign</id>
@@ -252,7 +285,7 @@
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-resources-plugin</artifactId>
-                        <version>3.3.0</version>
+                        <version>3.5.0</version>
                         <configuration>
                             <includeEmptyDirs>true</includeEmptyDirs>
                         </configuration>
@@ -282,7 +315,7 @@
                     <plugin>
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>exec-maven-plugin</artifactId>
-                        <version>3.1.0</version>
+                        <version>3.6.3</version>
                         <executions>
                             <execution>
                                 <id>chmod</id>
@@ -314,12 +347,15 @@
                 <plugins>
                     <plugin>
                         <artifactId>maven-surefire-plugin</artifactId>
-                        <version>2.22.0</version>
+                        <version>3.5.6</version>
+                        <configuration>
+                            <argLine>-javaagent:${settings.localRepository}/org/mockito/mockito-core/${mockito.core.version}/mockito-core-${mockito.core.version}.jar</argLine>
+                        </configuration>
                     </plugin>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-clean-plugin</artifactId>
-                        <version>3.1.0</version>
+                        <version>3.5.0</version>
                         <executions>
                             <execution>
                                 <id>clean-package</id>
@@ -343,16 +379,15 @@
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-compiler-plugin</artifactId>
-                        <version>3.10.1</version>
+                        <version>3.15.0</version>
                         <configuration>
-                            <source>${maven.compiler.source}</source>
-                            <target>${maven.compiler.target}</target>
+                            <compilerArgument>-Xlint:all</compilerArgument>
                         </configuration>
                     </plugin>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-jar-plugin</artifactId>
-                        <version>3.2.0</version>
+                        <version>3.5.1</version>
                         <configuration>
                             <archive>
                                 <addMavenDescriptor>false</addMavenDescriptor>
@@ -372,7 +407,7 @@
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-shade-plugin</artifactId>
-                        <version>3.4.1</version>
+                        <version>3.6.2</version>
                         <executions>
                             <execution>
                                 <phase>package</phase>
@@ -380,18 +415,45 @@
                                     <goal>shade</goal>
                                 </goals>
                                 <configuration>
-                                    <minimizeJar>true</minimizeJar>
+                                    <minimizeJar>false</minimizeJar>
+                                    <transformers>
+                                        <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                            <mainClass>mpo.dayon.common.Runner</mainClass>
+                                        </transformer>
+                                    </transformers>
+                                    <artifactSet>
+                                        <excludes>
+                                            <exclude>net.java.dev.jna:*</exclude>
+                                            <exclude>com.googlecode.json-simple:*</exclude>
+                                        </excludes>
+                                    </artifactSet>
                                     <filters>
                                         <filter>
-                                            <artifact>org.tukaani:xz</artifact>
+                                            <artifact>ice4j*:*</artifact>
                                             <excludes>
-                                                <exclude>META-INF/**</exclude>
+                                                <exclude>reference.conf</exclude>
                                             </excludes>
                                         </filter>
                                         <filter>
-                                            <artifact>com.dosse.upnp:WaifUPnP</artifact>
+                                            <artifact>*</artifact>
                                             <excludes>
                                                 <exclude>META-INF/**</exclude>
+                                                <exclude>license.txt</exclude>
+                                                <exclude>gov/nist/core/net/**</exclude>
+                                                <exclude>gov/nist/javax/sip/**</exclude>
+                                                <exclude>org/bitlet/**</exclude>
+                                                <exclude>org/intellij/**</exclude>
+                                                <exclude>org/jetbrains/**</exclude>
+                                                <exclude>kotlin/**/*metadata</exclude>
+                                                <exclude>kotlin/coroutines/**</exclude>
+                                                <exclude>kotlin/comparisons/**</exclude>
+                                                <exclude>kotlin/io/encoding/**</exclude>
+                                                <exclude>kotlin/io/path/**</exclude>
+                                                <exclude>kotlin/math/**</exclude>
+                                                <exclude>kotlin/random/**</exclude>
+                                                <exclude>kotlin/reflect/jvm/internal/calls/**</exclude>
+                                                <exclude>kotlin/streams/**</exclude>
+                                                <exclude>kotlin/time/**</exclude>
                                             </excludes>
                                         </filter>
                                     </filters>
@@ -402,7 +464,7 @@
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-jarsigner-plugin</artifactId>
-                        <version>3.0.0</version>
+                        <version>3.1.0</version>
                         <executions>
                             <execution>
                                 <id>sign</id>
@@ -422,7 +484,7 @@
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-resources-plugin</artifactId>
-                        <version>3.3.0</version>
+                        <version>3.5.0</version>
                         <configuration>
                             <includeEmptyDirs>true</includeEmptyDirs>
                         </configuration>
@@ -440,7 +502,6 @@
                                             <directory>resources</directory>
                                             <include>**/*</include>
                                             <excludes>
-                                                <exclude>deb/</exclude>
                                                 <exclude>jrex/</exclude>
                                                 <exclude>snap/</exclude>
                                             </excludes>
@@ -461,7 +522,7 @@
                     <plugin>
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>exec-maven-plugin</artifactId>
-                        <version>3.1.0</version>
+                        <version>3.6.3</version>
                         <executions>
                             <execution>
                                 <id>chmod</id>
@@ -486,13 +547,13 @@
             </build>
         </profile>
         <profile>
-            <id>assisted</id>
+            <id>makeself</id>
             <build>
                 <plugins>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-resources-plugin</artifactId>
-                        <version>3.3.0</version>
+                        <version>3.5.0</version>
                         <configuration>
                             <includeEmptyDirs>true</includeEmptyDirs>
                         </configuration>
@@ -510,9 +571,7 @@
                                             <directory>resources</directory>
                                             <include>**/*</include>
                                             <excludes>
-                                                <exclude>deb/</exclude>
                                                 <exclude>jre/</exclude>
-                                                <exclude>jrex/legal/</exclude>
                                                 <exclude>snap/</exclude>
                                             </excludes>
                                         </resource>
@@ -532,10 +591,74 @@
                     <plugin>
                         <groupId>com.github.hazendaz.maven</groupId>
                         <artifactId>makeself-maven-plugin</artifactId>
-                        <version>1.5.1</version>
+                        <version>${makeself.version}</version>
                         <configuration>
                             <archiveDir>../dist/</archiveDir>
-                            <fileName>assisted.sh</fileName>
+                            <fileName>dayon.sh</fileName>
+                            <label>Dayon! ${project.version}</label>
+                            <startupScript>./dayon_assisted.sh</startupScript>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>makeself</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>makeself</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>mac</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-resources-plugin</artifactId>
+                        <version>3.5.0</version>
+                        <configuration>
+                            <includeEmptyDirs>true</includeEmptyDirs>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>copy-resources</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>copy-resources</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${basedir}/dist</outputDirectory>
+                                    <resources>
+                                        <resource>
+                                            <directory>resources</directory>
+                                            <include>**/*.sh</include>
+                                        </resource>
+                                        <resource>
+                                            <directory>${basedir}/target</directory>
+                                            <include>dayon.jar</include>
+                                        </resource>
+                                    </resources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>assisted</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.github.hazendaz.maven</groupId>
+                        <artifactId>makeself-maven-plugin</artifactId>
+                        <version>${makeself.version}</version>
+                        <configuration>
+                            <archiveDir>../dist/</archiveDir>
+                            <fileName>Assisted.command</fileName>
                             <label>Dayon! Assisted ${project.version}</label>
                             <startupScript>./dayon_assisted.sh</startupScript>
                         </configuration>
@@ -554,58 +677,15 @@
         </profile>
         <profile>
             <id>assistant</id>
-            <properties>
-                <dayon.mainClass>mpo.dayon.assistant.AssistantRunner</dayon.mainClass>
-            </properties>
             <build>
                 <plugins>
                     <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-resources-plugin</artifactId>
-                        <version>3.3.0</version>
-                        <configuration>
-                            <includeEmptyDirs>true</includeEmptyDirs>
-                        </configuration>
-                        <executions>
-                            <execution>
-                                <id>copy-resources</id>
-                                <phase>package</phase>
-                                <goals>
-                                    <goal>copy-resources</goal>
-                                </goals>
-                                <configuration>
-                                    <outputDirectory>${basedir}/dist</outputDirectory>
-                                    <resources>
-                                        <resource>
-                                            <directory>resources</directory>
-                                            <include>**/*</include>
-                                            <excludes>
-                                                <exclude>deb/</exclude>
-                                                <exclude>jre/</exclude>
-                                                <exclude>jrex/legal/</exclude>
-                                                <exclude>snap/</exclude>
-                                            </excludes>
-                                        </resource>
-                                        <resource>
-                                            <directory>${basedir}/target</directory>
-                                            <include>dayon.jar</include>
-                                        </resource>
-                                        <resource>
-                                            <directory>${basedir}/docs</directory>
-                                            <include>favicon.ico</include>
-                                        </resource>
-                                    </resources>
-                                </configuration>
-                            </execution>
-                        </executions>
-                    </plugin>
-                    <plugin>
                         <groupId>com.github.hazendaz.maven</groupId>
                         <artifactId>makeself-maven-plugin</artifactId>
-                        <version>1.5.1</version>
+                        <version>${makeself.version}</version>
                         <configuration>
                             <archiveDir>../dist/</archiveDir>
-                            <fileName>assistant.sh</fileName>
+                            <fileName>Assistant.command</fileName>
                             <label>Dayon! Assistant ${project.version}</label>
                             <startupScript>./dayon_assistant.sh</startupScript>
                         </configuration>
@@ -616,6 +696,43 @@
                                 <goals>
                                     <goal>makeself</goal>
                                 </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>coverage</id>
+            <properties>
+                <sonar.coverage.jacoco.xmlReportPaths>
+                    target/jacoco.xml
+                </sonar.coverage.jacoco.xmlReportPaths>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.jacoco</groupId>
+                        <artifactId>jacoco-maven-plugin</artifactId>
+                        <version>0.8.15</version>
+                        <executions>
+                            <execution>
+                                <id>prepare-agent</id>
+                                <goals>
+                                    <goal>prepare-agent</goal>
+                                </goals>
+                            </execution>
+                            <execution>
+                                <id>report</id>
+                                <goals>
+                                    <goal>report</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${project.basedir}/target</outputDirectory>
+                                    <formats>
+                                        <format>XML</format>
+                                    </formats>
+                                </configuration>
                             </execution>
                         </executions>
                     </plugin>

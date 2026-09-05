@@ -1,6 +1,5 @@
 package mpo.dayon.common.utils;
 
-import javax.net.ssl.HttpsURLConnection;
 import javax.swing.*;
 import javax.swing.plaf.metal.MetalLookAndFeel;
 import java.io.*;
@@ -12,12 +11,13 @@ import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static java.lang.String.format;
 import static java.lang.System.getProperty;
-import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.lang.Thread.sleep;
 import static mpo.dayon.common.utils.UnitUtilities.toByteSize;
 
 public final class SystemUtilities {
@@ -25,13 +25,14 @@ public final class SystemUtilities {
     public static final String JAVA_CLASS_PATH = "java.class.path";
     public static final String FLATPAK_BROWSER = "/app/bin/dayon.browser";
     private static final String JAVA_VENDOR = "java.vendor";
-    public static final String DEFAULT_TOKEN_SERVER_URL = "https://fensterkitt.ch/dayon/";
+    private static final Pattern FQ_HOSTNAME_REGEX = Pattern.compile("^([a-zA-Z\\d][a-zA-Z\\d\\-]{0,61}[a-zA-Z\\d]\\.)*[a-zA-Z]{2,}$");
+    private static final Pattern IPV4_REGEX = Pattern.compile("(\\d{1,3})");
 
     private SystemUtilities() {
     }
 
     public static URI getQuickStartURI(String quickstartPage, String section) {
-        return URI.create(format("http://retgal.github.io/Dayon/%s#%s-setup", quickstartPage, section));
+        return URI.create(format("https://retgal.github.io/Dayon/%s#%s-setup", quickstartPage, section));
     }
 
     private static File getOrCreateTransferDir() throws IOException {
@@ -50,7 +51,8 @@ public final class SystemUtilities {
 
     public static String getJarDir() {
         try {
-            return Paths.get(SystemUtilities.class.getProtectionDomain().getCodeSource().getLocation().toURI()).getParent().toString();
+            final Path parent = Paths.get(SystemUtilities.class.getProtectionDomain().getCodeSource().getLocation().toURI()).getParent();
+            return parent != null ? parent.toString() : "";
         } catch (URISyntaxException e) {
             return "";
         }
@@ -66,7 +68,7 @@ public final class SystemUtilities {
     }
 
     public static List<String> getSystemProperties() {
-        final List<String> props = new ArrayList<>();
+        final List<String> props = new ArrayList<>(64);
         final List<String> propNames = System.getProperties().keySet().stream().map(Object::toString).collect(Collectors.toList());
         final int size = propNames.stream().max(Comparator.comparing(String::length)).orElse("").length();
         final String format = "%" + size + "." + size + "s [%s]";
@@ -75,7 +77,7 @@ public final class SystemUtilities {
             String propValue = getProperty(propName);
             // I want to display the actual content of the line separator...
             if (propName.equals("line.separator")) {
-                StringBuilder hex = new StringBuilder();
+                StringBuilder hex = new StringBuilder(3);
                 for (int idx = 0; idx < propValue.length(); idx++) {
                     final int cc = propValue.charAt(idx);
                     hex.append("\\").append(cc);
@@ -88,7 +90,7 @@ public final class SystemUtilities {
     }
 
     public static String getSystemPropertiesEx() {
-        return getSystemProperties().stream().map(line -> line + System.lineSeparator()).collect(Collectors.joining());
+        return getSystemProperties().stream().collect(Collectors.joining(System.lineSeparator()));
     }
 
     public static String getRamInfo() {
@@ -107,8 +109,10 @@ public final class SystemUtilities {
         });
     }
 
+    @SuppressWarnings("squid:S2142")
     public static Thread safeInterrupt(Thread thread) {
         if (thread != null) {
+            pause(250);
             thread.interrupt();
         }
         return null;
@@ -182,14 +186,30 @@ public final class SystemUtilities {
         }
     }
 
-    @java.lang.SuppressWarnings("squid:S5998") // matcher input is max 256 chars long
+    @SuppressWarnings("squid:S5998") // matcher input is max 256 chars long
     private static boolean isValidHostname(String serverName) {
         return !isLookingLikeAnIpV4(serverName) && serverName.length() < 256 &&
-                serverName.matches("^([a-zA-Z\\d][a-zA-Z\\d\\-]{0,61}[a-zA-Z\\d]\\.)*[a-zA-Z]{2,}$");
+                FQ_HOSTNAME_REGEX.matcher(serverName).matches();
+    }
+
+    public static boolean isValidUrl(String url) {
+        try {
+            new URI(url);
+            if (url.startsWith("http://") || url.startsWith("https://")) {
+                if (url.lastIndexOf('/') > 7) {
+                    return isValidIpAddressOrHostName(url.substring(url.indexOf("://") + 3, url.indexOf('/', url.indexOf("://") + 3)));
+                } else {
+                    return isValidIpAddressOrHostName(url.substring(url.indexOf("://") + 3));
+                }
+            }
+            return false;
+        } catch (URISyntaxException e) {
+            return false;
+        }
     }
 
     private static boolean isLookingLikeAnIpV4(String serverName) {
-        return Arrays.stream(serverName.split("\\.")).allMatch(e -> e.matches("(\\d{1,3})"));
+        return Arrays.stream(serverName.split("\\.")).allMatch(e -> IPV4_REGEX.matcher(e).matches());
     }
 
     public static boolean isValidToken(String token) throws NoSuchAlgorithmException {
@@ -198,18 +218,16 @@ public final class SystemUtilities {
 
     static String checksum(String input) throws NoSuchAlgorithmException {
         MessageDigest objSHA = MessageDigest.getInstance("SHA-1");
-        byte[] bytSHA = objSHA != null ? objSHA.digest(input.getBytes()) : new byte[0];
-        BigInteger intNumber = new BigInteger(1, bytSHA);
-        String hash = intNumber.toString(16);
+        String hash = new BigInteger(1, objSHA.digest(input.getBytes())).toString(16);
         return hash.substring(hash.length()-1).toUpperCase();
     }
 
-    public static String resolveToken(String tokenServerUrl, String token) throws IOException {
-        URL url = new URL(format(tokenServerUrl, token));
-        HttpsURLConnection conn = (HttpsURLConnection) url.openConnection();
-        conn.setInstanceFollowRedirects(false);
-        conn.setReadTimeout(3000);
-        conn.disconnect();
-        return new BufferedReader(new InputStreamReader(conn.getInputStream(), UTF_8)).readLine().trim();
+    public static void pause(long ms) {
+        try {
+            sleep(ms);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
     }
+
 }

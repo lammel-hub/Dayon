@@ -26,22 +26,19 @@ public interface Runner {
         final File appHomeDir = Runner.getOrCreateAppHomeDir();
         Map<String, String> programArgs = Runner.extractProgramArgs(args);
         String language = Runner.overrideLocale(programArgs.get("lang"));
-        if (hasAssistant(args)) {
-            Runner.logAppInfo("dayon_assistant");
+        SwingUtilities.invokeLater(() -> {
+            Runner.logAppInfo(hasAssistant(args) ? "dayon_assistant" : "dayon_assisted");
             try {
-                SwingUtilities.invokeLater(() -> AssistantRunner.launchAssistant(language));
+                if (hasAssistant(args)) {
+                    AssistantRunner.launchAssistant(language);
+                } else {
+                    AssistedRunner.launchAssisted(programArgs.get("ah"), programArgs.get("ap"));
+                }
             } catch (Exception ex) {
-                FatalErrorHandler.bye("The assistant is dead!", ex);
+                FatalErrorHandler.bye(hasAssistant(args) ? "The assistant is dead!" : "The assisted is dead!", ex);
             }
-        } else {
-            Runner.logAppInfo("dayon_assisted");
-            try {
-                SwingUtilities.invokeLater(() -> AssistedRunner.launchAssisted(programArgs.get("ah"), programArgs.get("ap")));
-            } catch (Exception ex) {
-                FatalErrorHandler.bye("The assisted is dead!", ex);
-            }
-        }
-        prepareKeystore(appHomeDir);
+        });
+        new Thread(() -> prepareKeystore(appHomeDir)).start();
     }
 
     static void logAppInfo(String appName) {
@@ -55,6 +52,7 @@ public interface Runner {
         return Arrays.stream(args)
                 .map(arg -> arg
                 .replace(",", "")
+                .replace("-", "")
                 .trim()
                 .split("="))
                 .filter(pair -> pair.length == 2)
@@ -63,15 +61,15 @@ public interface Runner {
 
     static String overrideLocale(String arg) {
         if (arg != null && Arrays.stream(Language.values()).map(Language::getShortName).anyMatch(e -> e.equalsIgnoreCase(arg))) {
-            Locale.setDefault(new Locale(arg));
+            Locale.setDefault(Locale.forLanguageTag(arg));
             return arg;
         }
         return null;
     }
 
     static void setDebug(String[] args) {
-        if (Arrays.stream(args).anyMatch(a -> a.equalsIgnoreCase("debug"))) {
-            System.setProperty("dayon.debug", "on");
+        if (Arrays.stream(args).anyMatch(a -> a.replace("-", "").equalsIgnoreCase("debug"))) {
+            System.setProperty("dayon.debug", "true");
         }
     }
 
@@ -80,30 +78,17 @@ public interface Runner {
     }
 
     static File getOrCreateAppHomeDir() {
-        final String homeDir = System.getProperty("user.home"); // *.log4j.xml are using that one (!)
+        final String homeDir = System.getProperty("user.home");
         if (homeDir == null) {
             Log.warn("Home directory [user.home] is null!");
             return null;
         }
 
-        final File home = new File(homeDir);
-        if (!home.isDirectory()) {
-            Log.warn(format("Home directory [%s] is not a directory!", homeDir));
-            return null;
-        }
+        File appHomeDir = new File(isSnapped() ? format("%s%s", homeDir, System.getProperty(JAVA_CLASS_PATH).substring(0, System.getProperty(JAVA_CLASS_PATH).indexOf("/jar/dayon.jar")), ".dayon") : homeDir, ".dayon");
 
-        File appHomeDir;
-        if (isSnapped()) {
-            final String classPath = System.getProperty(JAVA_CLASS_PATH);
-            final String userDataDir = format("%s%s", homeDir, classPath.substring(0, classPath.indexOf("/jar/dayon.jar")));
-            appHomeDir = new File(userDataDir, ".dayon");
-        } else {
-            appHomeDir = new File(home, ".dayon");
-        }
-
-        if (!appHomeDir.exists() && !appHomeDir.mkdir()) {
+        if (!appHomeDir.exists() && !appHomeDir.mkdirs()) {
             Log.warn(format("Could not create the application directory [%s]!", appHomeDir.getAbsolutePath()));
-            return home;
+            return new File(homeDir);
         }
         System.setProperty("dayon.home", appHomeDir.getAbsolutePath());
         return appHomeDir;
@@ -138,7 +123,7 @@ public interface Runner {
 
     static Map<String, String> parsePresetFileContent(File presetFile) {
         try (Stream<String> lines = Files.lines(presetFile.toPath())) {
-            final Map<String, String> content = lines.map(line -> line.split(":")).filter(s -> s.length > 1).collect(Collectors.toMap(s -> s[0].trim(), Runner::parseValue));
+            final Map<String, String> content = lines.filter(line -> !line.startsWith("#")).map(line -> line.split(":")).filter(s -> s.length > 1).collect(Collectors.toMap(s -> s[0].trim(), Runner::parseValue));
             if ((content.containsKey("host") && content.containsKey("port")) || content.containsKey("tokenServerUrl")) {
                 Log.info(format("Using connection settings from [%s]", presetFile.getPath()));
                 return content;
@@ -150,11 +135,10 @@ public interface Runner {
     }
 
     static String parseValue(String[] s) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 1; i < s.length; i++) {
-            sb.append(s[i].trim().replaceAll("(^[\"'])|([\"']$)", "")).append(":");
-        }
-        return sb.deleteCharAt(sb.length()-1).toString();
+        return String.join(":", Arrays.stream(s)
+                .skip(1)
+                .map(str -> str.trim().replaceAll("(^[\"'])|([\"']$)", ""))
+                .toArray(String[]::new));
     }
 
     static boolean isAutoConnect(Map<String, String> config) {

@@ -3,6 +3,8 @@ package mpo.dayon.assisted.network;
 import mpo.dayon.common.configuration.Configuration;
 import mpo.dayon.common.preference.Preferences;
 
+import java.util.Objects;
+
 public class NetworkAssistedEngineConfiguration extends Configuration {
     private static final String PREF_VERSION = "assisted.network.version";
 
@@ -10,9 +12,21 @@ public class NetworkAssistedEngineConfiguration extends Configuration {
 
     private static final String PREF_SERVER_PORT_NUMBER = "assisted.network.serverPortNumber";
 
-    private final String serverName;
+    private static final String PREF_AUTO_CONNECT = "assisted.network.autoConnect";
 
-    private final int serverPort;
+    private static final String PREF_TOKEN_SERVER_URL = "assisted.network.tokenServerUrl";
+
+    private static final String PREF_ICE_TURN_SERVERS = "ice.turn.servers";
+
+    private String serverName;
+
+    private int serverPort;
+
+    private final String tokenServerUrl;
+
+    private final String iceTurnServers;
+
+    private final boolean autoConnect;
 
     /**
      * Default : takes its values from the current preferences.
@@ -21,11 +35,35 @@ public class NetworkAssistedEngineConfiguration extends Configuration {
         final Preferences prefs = Preferences.getPreferences();
         serverName = prefs.getStringPreference(PREF_SERVER_NAME, "localhost");
         serverPort = prefs.getIntPreference(PREF_SERVER_PORT_NUMBER, 8080);
+        autoConnect = prefs.getBooleanPreference(PREF_AUTO_CONNECT, false);
+        tokenServerUrl = prefs.getStringPreference(PREF_TOKEN_SERVER_URL, DEFAULT_TOKEN_SERVER_URL);
+        iceTurnServers = prefs.getStringPreference(PREF_ICE_TURN_SERVERS, "");
     }
 
     public NetworkAssistedEngineConfiguration(String serverName, int serverPort) {
+        final Preferences prefs = Preferences.getPreferences();
         this.serverName = serverName;
         this.serverPort = serverPort;
+        this.autoConnect = prefs.getBooleanPreference(PREF_AUTO_CONNECT, false);
+        this.tokenServerUrl = prefs.getStringPreference(PREF_TOKEN_SERVER_URL, DEFAULT_TOKEN_SERVER_URL);
+        this.iceTurnServers = prefs.getStringPreference(PREF_ICE_TURN_SERVERS, "");
+    }
+
+    public NetworkAssistedEngineConfiguration(String serverName, int serverPort, boolean autoConnect) {
+        final Preferences prefs = Preferences.getPreferences();
+        this.serverName = serverName;
+        this.serverPort = serverPort;
+        this.autoConnect = autoConnect;
+        this.tokenServerUrl = prefs.getStringPreference(PREF_TOKEN_SERVER_URL, DEFAULT_TOKEN_SERVER_URL);
+        this.iceTurnServers = prefs.getStringPreference(PREF_ICE_TURN_SERVERS, "");
+    }
+
+    public NetworkAssistedEngineConfiguration(String serverName, int serverPort, boolean autoConnect, String tokenServerUrl) {
+        this.serverName = serverName;
+        this.serverPort = serverPort;
+        this.autoConnect = autoConnect;
+        this.tokenServerUrl = tokenServerUrl;
+        this.iceTurnServers = Preferences.getPreferences().getStringPreference(PREF_ICE_TURN_SERVERS, "");
     }
 
     public String getServerName() {
@@ -34,6 +72,22 @@ public class NetworkAssistedEngineConfiguration extends Configuration {
 
     public int getServerPort() {
         return serverPort;
+    }
+
+    public void setServerName(String serverName) {
+        this.serverName = serverName;
+    }
+
+    public void setServerPort(int port) {
+        this.serverPort = port;
+    }
+
+    public String getTokenServerUrl() {
+        return tokenServerUrl;
+    }
+
+    public String getIceTurnServers() {
+        return iceTurnServers;
     }
 
     @Override
@@ -45,13 +99,14 @@ public class NetworkAssistedEngineConfiguration extends Configuration {
             return false;
         }
         final NetworkAssistedEngineConfiguration that = (NetworkAssistedEngineConfiguration) o;
-        return serverPort == that.getServerPort() && serverName.equals(that.getServerName());
+        return serverPort == that.getServerPort() && serverName.equals(that.getServerName()) && autoConnect == that.isAutoConnect() && tokenServerUrl.equals(that.getTokenServerUrl()) && iceTurnServers.equals(that.getIceTurnServers());
     }
 
     @Override
     public int hashCode() {
-        return 31 * serverName.hashCode() + serverPort;
+        return Objects.hash(serverName, serverPort, autoConnect, tokenServerUrl, iceTurnServers);
     }
+
 
     /**
      * @param clear allows for clearing properties from previous version
@@ -62,6 +117,9 @@ public class NetworkAssistedEngineConfiguration extends Configuration {
         props.set(PREF_VERSION, String.valueOf(1));
         props.set(PREF_SERVER_NAME, String.valueOf(serverName));
         props.set(PREF_SERVER_PORT_NUMBER, String.valueOf(serverPort));
+        props.set(PREF_AUTO_CONNECT, String.valueOf(autoConnect));
+        props.set(PREF_TOKEN_SERVER_URL, tokenServerUrl);
+        props.set(PREF_ICE_TURN_SERVERS, iceTurnServers);
 
         if (clear) // migration support (!)
         {
@@ -74,5 +132,9 @@ public class NetworkAssistedEngineConfiguration extends Configuration {
     @Override
     public String toString() {
         return "[ip:" + serverName + "][port:" + serverPort + "]";
+    }
+
+    public boolean isAutoConnect() {
+        return autoConnect;
     }
 }

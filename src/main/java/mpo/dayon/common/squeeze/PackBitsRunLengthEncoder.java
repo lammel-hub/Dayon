@@ -48,20 +48,19 @@ public class PackBitsRunLengthEncoder implements RunLengthEncoder {
     private int encodeRun(MemByteBuffer out, byte[] in, int from) {
 		final int val = in[from];
 		int pos = from;
-		while (pos < in.length && in[pos] == val) {
+		final int inLength = in.length;
+		while (pos < inLength && in[pos] == val) {
 			++pos;
 		}
 		// [ from .. pos [
         int runMax = 130;
         final int d = (pos - from) / runMax;
 		for (int idx = 0; idx < d; idx++) {
-			out.write(2 - runMax);
-			out.write(val);
+			out.writes(2 - runMax, val);
 		}
 		final int m = (pos - from) % runMax;
 		if (m > 2) {
-			out.write(2 - m);
-			out.write(val);
+			out.writes(2 - m, val);
 		} else if (m > 0) // we've 2 elements that cannot be included in that run
 		{
 			pos -= m;

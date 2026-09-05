@@ -2,7 +2,6 @@ package mpo.dayon.common.gui.statusbar;
 
 import mpo.dayon.common.monitoring.BigBrother;
 import mpo.dayon.common.monitoring.counter.Counter;
-import mpo.dayon.common.monitoring.counter.CounterListener;
 import mpo.dayon.common.utils.SystemUtilities;
 
 import javax.swing.*;
@@ -15,31 +14,66 @@ import static javax.swing.SwingConstants.*;
 import static mpo.dayon.common.babylon.Babylon.translate;
 
 public class StatusBar extends JPanel {
-    
-    private static final int HEIGHT = 5;
-    private final JLabel message = new JLabel();
-    private final JLabel sessionDuration = new JLabel("00:00:00");
-    private final JLabel keyboardLayout = new JLabel();
 
-    public StatusBar() {
+    private static final int HEIGHT = 5;
+    private static final Color DEFAULT_INDICATOR_COLOR = Color.darkGray;
+    private static final String INITIAL_SESSION_DURATION = "00:00:00";
+    private final JLabel portStateIndicator = stateIndicator();
+    private final JLabel peerStateIndicator = stateIndicator();
+    private final JLabel message = new JLabel();
+    private final JLabel sessionDuration = new JLabel(INITIAL_SESSION_DURATION);
+    private final JLabel keyboardLayout = new JLabel();
+    private final JLabel capsLockIndicator = new JLabel();
+
+    public StatusBar(int strutWidth) {
         setLayout(new BoxLayout(this, LINE_AXIS));
-        add(Box.createHorizontalStrut(10));
+        add(Box.createHorizontalStrut(strutWidth));
+        add(portStateIndicator);
+        add(peerStateIndicator);
+        add(Box.createHorizontalStrut(5));
         add(message);
         add(Box.createHorizontalGlue());
         addSeparator();
         addKeyboardLayout();
+        addCapsLockIndicator();
+    }
+
+    private JLabel stateIndicator() {
+        JLabel stateIndicator = new JLabel("\u25CF ");
+        stateIndicator.setForeground(DEFAULT_INDICATOR_COLOR);
+        return stateIndicator;
     }
 
     public void clearMessage() {
-        this.message.setText(null);
+        message.setText(null);
     }
 
     public void setMessage(String message) {
         this.message.setText(message);
     }
 
+    public void setPortStateIndicator(Color color) {
+        portStateIndicator.setForeground(color);
+    }
+
+    public void resetPortStateIndicator() {
+        portStateIndicator.setForeground(DEFAULT_INDICATOR_COLOR);
+    }
+
+    public void setPeerStateIndicator(Color color) {
+        peerStateIndicator.setForeground(color);
+    }
+
+    public void resetPeerStateIndicator() {
+        peerStateIndicator.setForeground(DEFAULT_INDICATOR_COLOR);
+    }
+
     public void setSessionDuration(String sessionDuration) {
         this.sessionDuration.setText(sessionDuration);
+    }
+
+    public void resetSessionDuration() {
+        this.sessionDuration.setText(INITIAL_SESSION_DURATION);
     }
 
     public void setKeyboardLayout(String keyboardLayout) {
@@ -52,48 +86,53 @@ public class StatusBar extends JPanel {
     }
 
     private void addKeyboardLayout() {
-        final Dimension dimension = new Dimension(60, HEIGHT);
-        keyboardLayout.setHorizontalAlignment(CENTER);
-        keyboardLayout.setSize(dimension);
-        keyboardLayout.setPreferredSize(dimension);
         add(keyboardLayout);
     }
 
-    public void addCounter(Counter<?> counter, int width) {
-        final JLabel lbl = new JLabel(counter.getUid());
-        final Dimension dimension = new Dimension(width, HEIGHT);
-        lbl.setHorizontalAlignment(CENTER);
-        lbl.setSize(dimension);
-        lbl.setPreferredSize(dimension);
-        lbl.setToolTipText(counter.getShortDescription());
-        counter.addListener((CounterListener) (counter1, value) -> lbl.setText(counter1.formatInstantValue(value)));
-        add(lbl);
+    private void addCapsLockIndicator() {
+        add(capsLockIndicator);
+    }
+
+    public boolean isCapsLockOn() {
+        return !capsLockIndicator.getText().isBlank();
+    }
+
+    public void setCapsLockIndicator(boolean isCapsLockOn) {
+        capsLockIndicator.setText(isCapsLockOn ? " ⛰ " : "");
+        capsLockIndicator.setToolTipText("Caps Lock");
+    }
+
+    public <T> void addCounter(Counter<T> counter, int width) {
+        JLabel label = createLabel(counter.getUid(), width);
+        label.setToolTipText(counter.getShortDescription());
+        counter.addListener((counter1, value) -> label.setText(counter1.formatInstantValue(value)));
+        add(label);
     }
 
     public void addRamInfo() {
-        final JLabel lbl = new JLabel();
-        final Dimension dimension = new Dimension(110, HEIGHT);
-        lbl.setHorizontalAlignment(CENTER);
-        lbl.setSize(dimension);
-        lbl.setPreferredSize(dimension);
-        BigBrother.get().registerRamInfo(new MemoryCounter(lbl));
-        lbl.setToolTipText(translate("memory.info"));
-        add(lbl);
+        JLabel label = createLabel("", 110);
+        label.setHorizontalAlignment(RIGHT);
+        BigBrother.get().registerRamInfo(new MemoryCounter(label));
+        label.setToolTipText(translate("memory.info"));
+        add(label);
     }
 
     public void addConnectionDuration() {
-        final Dimension dimension = new Dimension(65, HEIGHT);
         sessionDuration.setHorizontalAlignment(RIGHT);
-        sessionDuration.setSize(dimension);
-        sessionDuration.setPreferredSize(dimension);
+        sessionDuration.setPreferredSize(new Dimension(65, HEIGHT));
         sessionDuration.setToolTipText(translate("session.duration"));
         add(sessionDuration);
     }
 
     public void addSeparator() {
-        final JToolBar.Separator separator = new JToolBar.Separator();
-        separator.setOrientation(VERTICAL);
-        add(separator);
+        add(new JToolBar.Separator(new Dimension(5, HEIGHT)));
+    }
+
+    private JLabel createLabel(String text, int width) {
+        JLabel label = new JLabel(text);
+        label.setHorizontalAlignment(CENTER);
+        label.setPreferredSize(new Dimension(width, HEIGHT));
+        return label;
     }
 
     private static class MemoryCounter extends TimerTask {

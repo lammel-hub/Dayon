@@ -1,5 +1,6 @@
 package mpo.dayon.assistant.gui;
 
+import mpo.dayon.assistant.network.NetworkAssistantEngine;
 import mpo.dayon.common.event.Listeners;
 import mpo.dayon.common.gui.common.BaseFrame;
 import mpo.dayon.common.gui.common.FrameType;
@@ -9,19 +10,21 @@ import mpo.dayon.common.gui.toolbar.ToolBar;
 import mpo.dayon.common.log.Log;
 import mpo.dayon.common.monitoring.counter.Counter;
 import mpo.dayon.common.utils.Language;
+import mpo.dayon.common.version.Version;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
+import java.awt.im.InputContext;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.net.Socket;
 import java.time.Instant;
-import java.util.Set;
+import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static java.awt.event.KeyEvent.VK_CONTROL;
-import static java.awt.event.KeyEvent.VK_WINDOWS;
+import static java.awt.event.KeyEvent.*;
+import static java.lang.Math.abs;
 import static java.lang.String.format;
 import static mpo.dayon.common.babylon.Babylon.translate;
 import static mpo.dayon.common.gui.common.ImageUtilities.getOrCreateIcon;
@@ -31,6 +34,10 @@ class AssistantFrame extends BaseFrame {
     private static final int OFFSET = 6;
 
     private static final int DEFAULT_FACTOR = 1;
+
+    private static final char EMPTY_CHAR = ' ';
+
+    private static final BufferedImage INVISIBLE_CURSOR = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
 
     private final transient Listeners<AssistantFrameListener> listeners = new Listeners<>();
 
@@ -45,54 +52,54 @@ class AssistantFrame extends BaseFrame {
     private JComponent center;
 
     private final JToggleButton controlToggleButton;
-
+    private final JToggleButton compatibilityToggleButton;
     private final JToggleButton windowsKeyToggleButton;
-
     private final JToggleButton ctrlKeyToggleButton;
-
     private final JToggleButton fitToScreenToggleButton;
-
     private final JToggleButton keepAspectRatioToggleButton;
-
     private final JButton startButton;
-
     private final JButton stopButton;
+    private final JButton screenshotButton;
+    private final JButton tokenButton;
 
     private final AtomicBoolean controlActivated = new AtomicBoolean(false);
-
     private final AtomicBoolean windowsKeyActivated = new AtomicBoolean(false);
-
     private final AtomicBoolean ctrlKeyActivated = new AtomicBoolean(false);
-
     private final AtomicBoolean fitToScreenActivated = new AtomicBoolean(false);
-
     private final AtomicBoolean keepAspectRatioActivated = new AtomicBoolean(false);
-
     private final AtomicBoolean isImmutableWindowsSize = new AtomicBoolean(false);
 
     private double xFactor = DEFAULT_FACTOR;
-
     private double yFactor = DEFAULT_FACTOR;
 
     private Dimension canvas;
-
-    private ToolBar toolbar;
 
     private JTabbedPane tabbedPane;
 
     private final JComboBox<Language> languageSelection;
 
-    AssistantFrame(AssistantActions actions, Set<Counter<?>> counters, JComboBox<Language> languageSelection) {
+    private char osId;
+
+    private Timer peerStatusTimer;
+
+    private long sessionSeconds;
+
+    AssistantFrame(AssistantActions actions, ArrayList<Counter<?>> counters, JComboBox<Language> languageSelection, boolean compatibilityModeActive, NetworkAssistantEngine networkEngine, boolean hasTokenServerUrlFromYaml) {
         RepeatingReleasedEventsFixer.install();
         super.setFrameType(FrameType.ASSISTANT);
+        super.setPreExistAction(actions.getStopAction());
         this.actions = actions;
+        this.actions.setNetworkConfigurationAction(createAssistantConnectionSettingsAction(networkEngine, hasTokenServerUrlFromYaml));
         this.startButton = createButton(actions.getStartAction());
         this.stopButton = createButton(actions.getStopAction(), false);
+        this.tokenButton = createTokenButton(actions.getTokenAction());
+        this.compatibilityToggleButton = createToggleButton(actions.getToggleCompatibilityModeAction(), true, compatibilityModeActive);
         this.controlToggleButton = createToggleButton(createToggleControlMode());
         this.fitToScreenToggleButton = createToggleButton(createToggleFixScreenAction());
         this.keepAspectRatioToggleButton = createToggleButton(createToggleKeepAspectRatioAction(), false);
         this.windowsKeyToggleButton = createToggleButton(createSendWindowsKeyAction());
         this.ctrlKeyToggleButton = createToggleButton(createSendCtrlKeyAction());
+        this.screenshotButton = createButton(actions.getScreenshotRequestAction());
         this.languageSelection = languageSelection;
         setupToolBar(createToolBar());
         setupStatusBar(createStatusBar(counters));
@@ -102,13 +109,29 @@ class AssistantFrame extends BaseFrame {
         // -------------------------------------------------------------------------------------------------------------
         // Not really needed for the time being - allows for seeing the TAB with a regular KEY listener ...
         setFocusTraversalKeysEnabled(false);
+        addListeners();
+        // the network has been before we've been registered as a listener ...
+        onReady();
+    }
+
+    private void toggleCursorVisibility(boolean hide) {
+        if (hide) {
+            assistantPanel.setCursor(Toolkit.getDefaultToolkit().createCustomCursor(INVISIBLE_CURSOR, new Point(0, 0), "invisible"));
+        } else {
+            assistantPanel.setCursor(Cursor.getDefaultCursor());
+        }
+    }
+
+    public AssistantActions getActions() {
+        return actions;
+    }
+
+    private void addListeners() {
         addFocusListener();
         addKeyListeners();
         addMouseListeners();
         addResizeListener();
         addMinMaximizedListener();
-        // the network has been before we've been registered as a listener ...
-        onReady();
     }
 
     Dimension getCanvas() {
@@ -190,9 +213,15 @@ class AssistantFrame extends BaseFrame {
 
     private void addResizeListener() {
         addComponentListener(new ComponentAdapter() {
+            private Timer resizeTimer;
             @Override
             public void componentResized(ComponentEvent ev) {
-                resetCanvas();
+                if (resizeTimer != null) {
+                    resizeTimer.stop();
+                }
+                resizeTimer = new Timer(500, e -> resetCanvas());
+                resizeTimer.setRepeats(false);
+                resizeTimer.start();
             }
         });
     }
@@ -207,6 +236,14 @@ class AssistantFrame extends BaseFrame {
             public void focusLost(FocusEvent ev) {
                 if (controlActivated.get()) {
                     fireOnKeyReleased(-1, Character.MIN_VALUE);
+                    if (windowsKeyActivated.get()) {
+                        windowsKeyToggleButton.setSelected(false);
+                        windowsKeyActivated.set(!windowsKeyActivated.get());
+                    }
+                    if (ctrlKeyActivated.get()) {
+                        ctrlKeyToggleButton.setSelected(false);
+                        ctrlKeyActivated.set(!ctrlKeyActivated.get());
+                    }
                 }
             }
         });
@@ -217,7 +254,7 @@ class AssistantFrame extends BaseFrame {
     }
 
     private ToolBar createToolBar() {
-        toolbar = new ToolBar();
+        ToolBar toolbar = new ToolBar();
         toolbar.add(createTabbedPane());
         return toolbar;
     }
@@ -227,26 +264,27 @@ class AssistantFrame extends BaseFrame {
         connectionPanel.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 0));
         connectionPanel.add(startButton);
         connectionPanel.add(stopButton);
-        connectionPanel.add(createButton(actions.getTokenAction()));
+        connectionPanel.add(tokenButton);
         connectionPanel.add(createButton(actions.getIpAddressAction()));
-        connectionPanel.add(createToggleButton(actions.getToggleCompatibilityModeAction()));
+        connectionPanel.add(compatibilityToggleButton);
 
         JPanel sessionPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         sessionPanel.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 0));
         sessionPanel.add(fitToScreenToggleButton);
         sessionPanel.add(keepAspectRatioToggleButton);
         sessionPanel.add(controlToggleButton);
-        sessionPanel.add(createButton(actions.getRemoteClipboardRequestAction()));
-        sessionPanel.add(createButton(actions.getRemoteClipboardSetAction()));
         sessionPanel.add(windowsKeyToggleButton);
         sessionPanel.add(ctrlKeyToggleButton);
+        sessionPanel.add(screenshotButton);
+        sessionPanel.add(createButton(actions.getRemoteClipboardRequestAction()));
+        sessionPanel.add(createButton(actions.getRemoteClipboardSetAction()));
         sessionPanel.add(createButton(actions.getResetAction()));
 
         JPanel settingsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         settingsPanel.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 0));
+        settingsPanel.add(createButton(actions.getNetworkConfigurationAction()));
         settingsPanel.add(createButton(actions.getCaptureEngineConfigurationAction()));
         settingsPanel.add(createButton(actions.getCompressionEngineConfigurationAction()));
-        settingsPanel.add(createButton(actions.getNetworkConfigurationAction()));
         settingsPanel.add(languageSelection);
 
         tabbedPane = new JTabbedPane();
@@ -255,14 +293,22 @@ class AssistantFrame extends BaseFrame {
         tabbedPane.addTab(translate("settings"), settingsPanel);
         // must not be focusable or the key listener won't work
         tabbedPane.setFocusable(false);
-        tabbedPane.setBorder(null);
         return tabbedPane;
     }
 
-    private StatusBar createStatusBar(Set<Counter<?>> counters) {
-        final StatusBar statusBar = new StatusBar();
-        final Component horizontalStrut = Box.createHorizontalStrut(10);
-        statusBar.add(horizontalStrut);
+    private static JButton createTokenButton(Action tokenAction) {
+        String token = (String) tokenAction.getValue("token");
+        JButton button = createButton(tokenAction);
+        if (token != null) {
+            button.setText(format(" %s", token));
+            button.setToolTipText(translate("token.copy.msg"));
+        }
+        return button;
+    }
+
+    private static StatusBar createStatusBar(ArrayList<Counter<?>> counters) {
+        final StatusBar statusBar = new StatusBar(20);
+        statusBar.add(Box.createHorizontalStrut(10));
         for (Counter<?> counter : counters) {
             statusBar.addSeparator();
             statusBar.addCounter(counter, counter.getWidth());
@@ -271,22 +317,24 @@ class AssistantFrame extends BaseFrame {
         statusBar.addRamInfo();
         statusBar.addSeparator();
         statusBar.addConnectionDuration();
-        statusBar.add(horizontalStrut);
+        statusBar.add(Box.createHorizontalStrut(15));
         return statusBar;
     }
 
     private Action createToggleControlMode() {
         final Action remoteControl = new AbstractAction() {
-
             @Override
             public void actionPerformed(ActionEvent ev) {
                 controlActivated.set(!controlActivated.get());
+                toggleCursorVisibility(controlActivated.get());
                 windowsKeyToggleButton.setEnabled(controlActivated.get());
                 ctrlKeyToggleButton.setEnabled(controlActivated.get());
             }
         };
         remoteControl.putValue(Action.SHORT_DESCRIPTION, translate("control.mode"));
-        remoteControl.putValue(Action.SMALL_ICON, getOrCreateIcon(ImageNames.CONTROL));
+        remoteControl.putValue(Action.SMALL_ICON, getOrCreateIcon(ImageNames.WATCH));
+        remoteControl.putValue(ROLLOVER_ICON, getOrCreateIcon(ImageNames.WATCH));
+        remoteControl.putValue(SELECTED_ICON, getOrCreateIcon(ImageNames.CONTROL));
         return remoteControl;
     }
 
@@ -294,10 +342,11 @@ class AssistantFrame extends BaseFrame {
         final Action sendWindowsKey = new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent ev) {
+                final int virtualKey = osId != 'm' ? VK_WINDOWS : VK_META;
                 if (windowsKeyActivated.get()) {
-                    fireOnKeyReleased(VK_WINDOWS, ' ');
+                    fireOnKeyReleased(virtualKey, EMPTY_CHAR);
                 } else {
-                    fireOnKeyPressed(VK_WINDOWS, ' ');
+                    fireOnKeyPressed(virtualKey, EMPTY_CHAR);
                 }
                 windowsKeyActivated.set(!windowsKeyActivated.get());
             }
@@ -312,9 +361,9 @@ class AssistantFrame extends BaseFrame {
             @Override
             public void actionPerformed(ActionEvent ev) {
                 if (ctrlKeyActivated.get()) {
-                    fireOnKeyReleased(VK_CONTROL, ' ');
+                    fireOnKeyReleased(VK_CONTROL, EMPTY_CHAR);
                 } else {
-                    fireOnKeyPressed(VK_CONTROL, ' ');
+                    fireOnKeyPressed(VK_CONTROL, EMPTY_CHAR);
                 }
                 ctrlKeyActivated.set(!ctrlKeyActivated.get());
             }
@@ -340,7 +389,9 @@ class AssistantFrame extends BaseFrame {
             }
         };
         fitScreen.putValue(Action.SHORT_DESCRIPTION, translate("toggle.screen.mode"));
-        fitScreen.putValue(Action.SMALL_ICON, getOrCreateIcon(ImageNames.FIT));
+        fitScreen.putValue(Action.SMALL_ICON, getOrCreateIcon(ImageNames.FULLSCREEN));
+        fitScreen.putValue(ROLLOVER_ICON, getOrCreateIcon(ImageNames.FULLSCREEN));
+        fitScreen.putValue(SELECTED_ICON, getOrCreateIcon(ImageNames.FIT));
         return fitScreen;
     }
 
@@ -354,8 +405,22 @@ class AssistantFrame extends BaseFrame {
             }
         };
         keepAspectRatio.putValue(Action.SHORT_DESCRIPTION, translate("toggle.keep.aspect"));
-        keepAspectRatio.putValue(Action.SMALL_ICON, getOrCreateIcon(ImageNames.LOCK));
+        keepAspectRatio.putValue(Action.SMALL_ICON, getOrCreateIcon(ImageNames.UNLOCKED));
+        keepAspectRatio.putValue(ROLLOVER_ICON, getOrCreateIcon(ImageNames.UNLOCKED));
+        keepAspectRatio.putValue(SELECTED_ICON, getOrCreateIcon(ImageNames.LOCK));
         return keepAspectRatio;
+    }
+
+    void onRequestingToken() {
+        // connection
+        getStatusBar().setMessage(translate("token.request.msg"));
+        actions.getTokenAction().setEnabled(false);
+        actions.getStartAction().setEnabled(false);
+        actions.getIpAddressAction().setEnabled(false);
+        actions.getToggleCompatibilityModeAction().setEnabled(false);
+        // settings
+        actions.getNetworkConfigurationAction().setEnabled(false);
+        showSpinner();
     }
 
     void onReady() {
@@ -367,34 +432,45 @@ class AssistantFrame extends BaseFrame {
         actions.getStopAction().setEnabled(false);
         startButton.setVisible(true);
         stopButton.setVisible(false);
+        actions.getTokenAction().setEnabled(true);
         actions.getToggleCompatibilityModeAction().setEnabled(true);
         actions.getIpAddressAction().setEnabled(true);
         // session
+        screenshotButton.setEnabled(false);
         actions.getResetAction().setEnabled(false);
         // settings
         actions.getNetworkConfigurationAction().setEnabled(true);
         actions.getCaptureEngineConfigurationAction().setEnabled(true);
         languageSelection.setEnabled(true);
         disableControls();
+        clearFingerprints();
         getStatusBar().setMessage(translate("ready"));
     }
 
-    void onHttpStarting(int port) {
+    void onHttpStarting(int port, boolean isPortAccessible) {
         // connection
         startButton.setVisible(false);
         actions.getStopAction().setEnabled(true);
         stopButton.setVisible(true);
+        actions.getTokenAction().setEnabled(false);
         actions.getToggleCompatibilityModeAction().setEnabled(false);
         actions.getIpAddressAction().setEnabled(false);
         // settings
         actions.getNetworkConfigurationAction().setEnabled(false);
         languageSelection.setEnabled(false);
-        toolbar.clearFingerprints();
+        clearFingerprints();
         getStatusBar().setMessage(translate("listening", port));
+        getStatusBar().setPortStateIndicator(isPortAccessible ? Color.green : Color.red);
+        getStatusBar().setPeerStateIndicator(isPortAccessible ? Color.green : Color.gray);
     }
 
     void onGettingReady() {
         actions.getStartAction().setEnabled(false);
+        actions.getTokenAction().setEnabled(false);
+        actions.getIpAddressAction().setEnabled(false);
+        actions.getToggleCompatibilityModeAction().setEnabled(false);
+        sessionSeconds = 0;
+        getStatusBar().resetSessionDuration();
         showSpinner();
     }
 
@@ -403,17 +479,23 @@ class AssistantFrame extends BaseFrame {
         add(center, BorderLayout.CENTER);
     }
 
-    boolean onAccepted(Socket connection) {
-        if (JOptionPane.showOptionDialog(this, translate("connection.incoming.msg1"),
-            translate("connection.incoming", connection.getInetAddress().getHostAddress()), JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE,
-            getOrCreateIcon(ImageNames.USERS), okCancelOptions, okCancelOptions[1]) == 0) {
+    boolean onAccepted(Socket connection, boolean autoAccept) {
+        if (connection == null || !connection.isConnected()) {
+            Log.warn("Connection was already terminated");
+            return false;
+        }
+        if (!autoAccept && JOptionPane.showOptionDialog(this, translate("connection.incoming.msg1"),
+                translate("connection.incoming", connection.getInetAddress().getHostAddress()), JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE,
+                getOrCreateIcon(ImageNames.USERS), okCancelOptions, okCancelOptions[1]) == 0) {
             return false;
         }
         hideSpinner();
         getStatusBar().setMessage(translate("connection.incoming.msg2", connection.getInetAddress().getHostAddress()));
         center = assistantPanelWrapper;
         add(center, BorderLayout.CENTER);
+        screenshotButton.setEnabled(true);
         actions.getResetAction().setEnabled(true);
+        actions.getTokenAction().setEnabled(false);
         enableControls();
         validate();
         repaint();
@@ -421,29 +503,51 @@ class AssistantFrame extends BaseFrame {
     }
 
     void onClipboardRequested() {
-        disableTransferControls();
+        toggleTransferControls(false);
     }
 
-    void onClipboardSending() {
-        disableTransferControls();
+    @Override
+    public void onClipboardSending() {
+        toggleTransferControls(false);
     }
 
-    void onClipboardSent() {
-        enableTransferControls();
+    @Override
+    public void onClipboardSent() {
+        toggleTransferControls(true);
     }
 
     void onClipboardReceived() {
-        enableTransferControls();
+        toggleTransferControls(true);
     }
 
-    void onSessionStarted() {
-        long sessionStartTime = Instant.now().getEpochSecond();
+    void onSessionStarted(char osId, String inputLocale, int assistedMajorVersion) {
+        this.osId = osId;
+        if (osId == 'm') {
+            windowsKeyToggleButton.setIcon(getOrCreateIcon(ImageNames.CMD));
+            windowsKeyToggleButton.setToolTipText(translate("send.cmdKey"));
+        } else {
+            windowsKeyToggleButton.setIcon(getOrCreateIcon(ImageNames.WIN));
+            windowsKeyToggleButton.setToolTipText(translate("send.windowsKey"));
+        }
+        if (Version.isOutdatedVersion(Version.get().getMajor(), assistedMajorVersion)) {
+            String infoMessage = format("%s%n%s", translate("outdated.msg1"), translate("outdated.msg2"));
+            JOptionPane.showMessageDialog(this,  infoMessage, "", JOptionPane.INFORMATION_MESSAGE);
+        }
+        if (!inputLocale.isEmpty() && !inputLocale.equals(InputContext.getInstance().getLocale().toString())) {
+            String infoMessage = format("%s%n%s%n%s", translate("keyboardlayout.msg1", inputLocale), translate("keyboardlayout.msg2"), translate("keyboardlayout.msg3"));
+            JOptionPane.showMessageDialog(this,  infoMessage, "", JOptionPane.INFORMATION_MESSAGE);
+        }
+        long sessionStartTime = Instant.now().getEpochSecond() - sessionSeconds;
         sessionTimer = new Timer(1000, e -> {
-            final long seconds = Instant.now().getEpochSecond() - sessionStartTime;
-            getStatusBar().setSessionDuration(format("%02d:%02d:%02d", seconds / 3600, (seconds % 3600) / 60, seconds % 60));
+            sessionSeconds = Instant.now().getEpochSecond() - sessionStartTime;
+            getStatusBar().setSessionDuration(format("%02d:%02d:%02d", sessionSeconds / 3600, (sessionSeconds % 3600) / 60, sessionSeconds % 60));
         });
         sessionTimer.start();
         tabbedPane.setSelectedIndex(1);
+    }
+
+    void onSessionInterrupted() {
+        stopSessionTimer();
     }
 
     void onDisconnecting() {
@@ -461,55 +565,47 @@ class AssistantFrame extends BaseFrame {
     }
 
     void onIOError(IOException error) {
-        actions.getStartAction().setEnabled(false);
-        actions.getStopAction().setEnabled(false);
-        actions.getResetAction().setEnabled(false);
-        disableControls();
-        stopSessionTimer();
+        onTerminating();
         hideSpinner();
         validate();
         repaint();
-        tabbedPane.setSelectedIndex(0);
-        String errorMessage = error.getMessage() != null ? translate("comm.error.msg1", translate(error.getMessage())) : translate("comm.error.msg1", "!");
+        String errorMessage = translate("comm.error.msg1", error.getMessage() != null ? translate(error.getMessage()) : "!");
         JOptionPane.showMessageDialog(this, errorMessage, translate("comm.error"), JOptionPane.ERROR_MESSAGE);
     }
 
-    void computeScaleFactors(int sourceWidth, int sourceHeight, boolean keepAspectRatio) {
+    void computeScaleFactors(int sourceWidth, int sourceHeight) {
+        Log.debug(format("ComputeScaleFactors for w: %d h: %d", sourceWidth, sourceHeight));
         canvas = assistantPanelWrapper.getSize();
         canvas.setSize(canvas.getWidth() - OFFSET, canvas.getHeight() - OFFSET);
         xFactor = canvas.getWidth() / sourceWidth;
         yFactor = canvas.getHeight() / sourceHeight;
-        if (keepAspectRatio && !isImmutableWindowsSize.get()) {
+        if (keepAspectRatioActivated.get() && !isImmutableWindowsSize.get() && abs(xFactor - yFactor) > 0.01) {
             resizeWindow(sourceWidth, sourceHeight);
         }
     }
 
     private void resizeWindow(int sourceWidth, int sourceHeight) {
-        Log.debug("%s", () -> format("Resize  W:H %s:%s x:y %s:%s", this.getWidth(), this.getHeight(), xFactor, yFactor));
+        Log.debug("%s", () -> format("Resize  W:H %d:%d x:y %f:%f", this.getWidth(), this.getHeight(), xFactor, yFactor));
         int menuHeight = this.getHeight() - canvas.height;
         final Rectangle maximumWindowBounds = GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
         if (xFactor < yFactor) {
             if ((sourceWidth * yFactor) + OFFSET < maximumWindowBounds.width) {
-                xFactor = yFactor;
                 Log.debug("Get wider");
-                this.setSize((int) (sourceWidth * xFactor) + OFFSET, this.getHeight());
+                this.setSize((int) (sourceWidth * yFactor) + OFFSET, this.getHeight());
             } else {
-                yFactor = xFactor;
                 Log.debug("Get lower");
-                this.setSize(this.getWidth(), (int) (sourceHeight * yFactor) + menuHeight + OFFSET);
+                this.setSize(this.getWidth(), (int) (sourceHeight * xFactor) + menuHeight + OFFSET);
             }
         } else {
             if ((sourceHeight * xFactor) + menuHeight + OFFSET < maximumWindowBounds.height) {
-                yFactor = xFactor;
                 Log.debug("Get higher");
-                this.setSize(this.getWidth(), (int) (sourceHeight * yFactor) + menuHeight + OFFSET);
+                this.setSize(this.getWidth(), (int) (sourceHeight * xFactor) + menuHeight + OFFSET);
             } else {
-                xFactor = yFactor;
                 Log.debug("Get narrower");
-                this.setSize((int) (sourceWidth * xFactor) + OFFSET, this.getHeight());
+                this.setSize((int) (sourceWidth * yFactor) + OFFSET, this.getHeight());
             }
         }
-        Log.debug("%s", () -> format("Resized W:H %s:%s x:y %s:%s", this.getWidth(), this.getHeight(), xFactor, yFactor));
+        Log.debug("%s", () -> format("Resized W:H %d:%d x:y %f:%f", this.getWidth(), this.getHeight(), xFactor, yFactor));
     }
 
     private void resetFactors() {
@@ -522,30 +618,23 @@ class AssistantFrame extends BaseFrame {
     }
 
     private void disableControls() {
-        controlActivated.set(false);
         windowsKeyActivated.set(false);
         controlToggleButton.setEnabled(false);
         windowsKeyToggleButton.setEnabled(false);
         ctrlKeyToggleButton.setEnabled(false);
-        disableTransferControls();
+        toggleTransferControls(false);
     }
 
-    private void disableTransferControls() {
-        actions.getRemoteClipboardSetAction().setEnabled(false);
-        actions.getRemoteClipboardRequestAction().setEnabled(false);
+    private void toggleTransferControls(boolean enabled) {
+        actions.getRemoteClipboardSetAction().setEnabled(enabled);
+        actions.getRemoteClipboardRequestAction().setEnabled(enabled);
     }
 
     private void enableControls() {
-        controlToggleButton.setSelected(false);
         controlToggleButton.setEnabled(true);
-        windowsKeyToggleButton.setSelected(false);
-        ctrlKeyToggleButton.setSelected(false);
-        enableTransferControls();
-    }
-
-    private void enableTransferControls() {
-        actions.getRemoteClipboardSetAction().setEnabled(true);
-        actions.getRemoteClipboardRequestAction().setEnabled(true);
+        windowsKeyToggleButton.setEnabled(controlActivated.get());
+        ctrlKeyToggleButton.setEnabled(controlActivated.get());
+        toggleTransferControls(true);
     }
 
     private void stopSessionTimer() {
@@ -574,27 +663,19 @@ class AssistantFrame extends BaseFrame {
     }
 
     private void fireOnMouseMove(int x, int y) {
-        int xs = scaleXPosition(x);
-        int ys = scaleYPosition(y);
-        listeners.getListeners().forEach(listener -> listener.onMouseMove(xs, ys));
+        listeners.getListeners().forEach(listener -> listener.onMouseMove(scaleXPosition(x), scaleYPosition(y)));
     }
 
     private void fireOnMousePressed(int x, int y, int button) {
-        int xs = scaleXPosition(x);
-        int ys = scaleYPosition(y);
-        listeners.getListeners().forEach(listener -> listener.onMousePressed(xs, ys, button));
+        listeners.getListeners().forEach(listener -> listener.onMousePressed(scaleXPosition(x), scaleYPosition(y), button));
     }
 
     private void fireOnMouseReleased(int x, int y, int button) {
-        int xs = scaleXPosition(x);
-        int ys = scaleYPosition(y);
-        listeners.getListeners().forEach(listener -> listener.onMouseReleased(xs, ys, button));
+        listeners.getListeners().forEach(listener -> listener.onMouseReleased(scaleXPosition(x), scaleYPosition(y), button));
     }
 
     private void fireOnMouseWheeled(int x, int y, int rotations) {
-        int xs = scaleXPosition(x);
-        int ys = scaleYPosition(y);
-        listeners.getListeners().forEach(listener -> listener.onMouseWheeled(xs, ys, rotations));
+        listeners.getListeners().forEach(listener -> listener.onMouseWheeled(scaleXPosition(x), scaleYPosition(y), rotations));
     }
 
     private int scaleYPosition(int y) {
@@ -611,6 +692,30 @@ class AssistantFrame extends BaseFrame {
 
     private void fireOnKeyReleased(int keyCode, char keyChar) {
         listeners.getListeners().forEach(listener -> listener.onKeyReleased(keyCode, keyChar));
+    }
+
+    public void onPeerIsAccessible(String address, int port, boolean isPeerAccessible) {
+        if (isPeerAccessible) {
+            getStatusBar().setMessage(translate("connecting", address, port));
+            getStatusBar().setPeerStateIndicator(Color.orange);
+        } else {
+            getStatusBar().setPeerStateIndicator(Color.red);
+        }
+
+    }
+
+    public void onCheckingPeerStatus(boolean active) {
+        if (active) {
+            getStatusBar().setMessage(translate("peerStatus"));
+            final boolean[] dimm = {false};
+            peerStatusTimer = new Timer(1000, e -> {
+                getStatusBar().setPeerStateIndicator(dimm[0] ? Color.gray : Color.darkGray);
+                dimm[0] = !dimm[0];
+            });
+            peerStatusTimer.start();
+        } else {
+            peerStatusTimer.stop();
+        }
     }
 
     private static class Spinner extends JPanel {

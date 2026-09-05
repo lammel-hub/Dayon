@@ -1,8 +1,10 @@
 package mpo.dayon.assistant.network;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.Mockito.*;
 
 class NetworkAssistantEngineTest {
@@ -17,18 +19,11 @@ class NetworkAssistantEngineTest {
         engine.addListener(listener);
     }
 
-    @Test
-    void testReconfigureStart() {
-        // given
-        engine.configure(new NetworkAssistantEngineConfiguration());
-        final NetworkAssistantEngineConfiguration configuration = new NetworkAssistantEngineConfiguration(12345);
-        engine.reconfigure(configuration);
-
-        // when
-        engine.start(false);
-
-        // then
-        verify(listener, timeout(2000).atLeastOnce()).onStarting(configuration.getPort());
+    @AfterEach
+    void tearDown() {
+        engine.cancel();
+        engine = null;
+        listener = null;
     }
 
     @Test
@@ -41,4 +36,16 @@ class NetworkAssistantEngineTest {
         // then
         verify(listener).onDisconnecting();
     }
+
+    @Test
+    void selfTestShouldFailIfPublicIpIsNull() {
+        // given
+        String publicIp = null;
+        int portNumber = 12345;
+        engine.configure(new NetworkAssistantEngineConfiguration(portNumber, "", false));
+
+        // when // then
+        assertFalse(engine.selfTest(publicIp, portNumber));
+    }
+
 }

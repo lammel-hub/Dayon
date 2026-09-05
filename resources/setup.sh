@@ -34,8 +34,9 @@ Comment=Offer remote assistance
 Comment[de]=Remotesupport anbieten
 Comment[es]=Ofrecer asistencia remota
 Comment[fr]=Offrir assistance à distance
-Comment[it]=Offri assistenza remota
+Comment[it]=Offrire assistenza remota
 Comment[ru]=Предлагайте удаленную помощь
+Comment[sv]=Erbjuda distanshjälp
 Comment[tr]=Uzaktan yardım sunun
 Comment[zh]=提供远程协助
 Keywords=remote;support;offer help
@@ -43,7 +44,6 @@ Icon=${INSTALL_DIR}/dayon.png
 Type=Application
 Terminal=false
 StartupNotify=true
-Encoding=UTF-8
 Categories=RemoteAccess;Network;
 EOF
 
@@ -56,8 +56,9 @@ Comment=Request remote assistance
 Comment[de]=Remotesupport erbitten
 Comment[es]=Solicitar asistencia remota
 Comment[fr]=Demander assistance à distance
-Comment[it]=Richiedi assistenza remota
+Comment[it]=Richiedere assistenza remota
 Comment[ru]=Запросить удаленную помощь
+Comment[sv]=Begär distanshjälp
 Comment[tr]=Uzaktan yardım isteyin
 Comment[zh]=请求远程协助
 Keywords=remote;support;get help
@@ -65,7 +66,6 @@ Icon=${INSTALL_DIR}/dayon.png
 Type=Application
 Terminal=false
 StartupNotify=true
-Encoding=UTF-8
 Categories=RemoteAccess;Network;
 EOF
 

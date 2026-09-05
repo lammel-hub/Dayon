@@ -64,5 +64,16 @@ public enum NetworkMessageType {
 	/*
 	 * Termination message.
 	 */
-	GOODBYE
-}
+	GOODBYE,
+
+	/**
+	 * A clipboard transfer graphic event.
+	 */
+	CLIPBOARD_GRAPHIC,
+
+	/**
+	 * A screenshot creation request.
+	 */
+	SCREENSHOT_REQUEST
+
+	}

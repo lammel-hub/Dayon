@@ -1,6 +1,8 @@
 package mpo.dayon.common.preference;
 
 import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -9,6 +11,7 @@ import mpo.dayon.common.log.Log;
 import static java.lang.Math.abs;
 import static java.lang.String.format;
 import static java.lang.System.getProperty;
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 public final class Preferences {
     private static final Preferences NULL = new Preferences();
@@ -35,8 +38,8 @@ public final class Preferences {
         this.props = new Properties();
 
         if (file.exists()) {
-            try (FileReader in = new FileReader(file)) {
-                getProps().load(in);
+            try (BufferedReader reader = Files.newBufferedReader(Paths.get(file.toURI()), UTF_8)) {
+                getProps().load(reader);
             } catch (FileNotFoundException e) {
                 Log.error("Preferences (read) permission denied");
             }
@@ -54,17 +57,9 @@ public final class Preferences {
         }
 
         try {
-            final Preferences xpreferences;
             final File file = getOrCreatePreferencesFile();
-
-            if (file.exists()) {
-                Log.info("Preferences (existing) [" + file.getAbsolutePath() + "]");
-            } else {
-                Log.info("Preferences (new) [" + file.getAbsolutePath() + "]");
-            }
-            xpreferences = new Preferences(file);
-            setupPersister(xpreferences);
-            preferences = xpreferences;
+            Log.info("Preferences (" + (file.exists() ? "existing" : "new") + ") [" + file.getAbsolutePath() + "]");
+            preferences = setupPersister(new Preferences(file));
             return preferences;
         } catch (IOException ex) {
             Log.warn("Preferences get/create error!", ex);
@@ -177,11 +172,11 @@ public final class Preferences {
 
     /**
      * Some components are possibly sending a lot of updates (e.g., main frame
-     * resize) and it makes no sense to write every changes as we want the last
+     * resize) and it makes no sense to write every change as we want the last
      * one only => I'm polling instead of saving each time a value has changed
      * ...
      */
-    private static void setupPersister(final Preferences preferences) {
+    private static Preferences setupPersister(final Preferences preferences) {
         new Timer("PreferencesWriter").schedule(new TimerTask() {
             @Override
             public void run() {
@@ -189,29 +184,20 @@ public final class Preferences {
                     return;
                 }
 
-                try {
-                    Properties cloned = null;
-                    synchronized (preferences.getCloneLOCK()) {
-                        if (preferences.getDirty().get()) {
-                            cloned = (Properties) preferences.getProps().clone();
+                synchronized (preferences.getCloneLOCK()) {
+                    if (preferences.getDirty().get()) {
+                        try (PrintWriter out = new PrintWriter(preferences.getFile(), UTF_8)) {
+                            Log.debug("Writing the preferences [%s]", () -> preferences.getFile().getAbsolutePath());
+                            preferences.getProps().store(out, null);
                             preferences.getDirty().set(false);
+                        } catch (IOException ex) {
+                            Log.error("Preferences write error!", ex);
+                            preferences.getWriteError().set(true);
                         }
                     }
-                    if (cloned != null) {
-                        Log.debug("Writing the preferences [%s]", () -> preferences.getFile().getAbsolutePath());
-                        try (PrintWriter out = new PrintWriter(preferences.getFile())) {
-                            cloned.store(out, null);
-                            out.flush();
-                        }
-                    }
-                } catch (FileNotFoundException e) {
-                    Log.error("Preferences (write) permission denied");
-                    preferences.getWriteError().set(true);
-                } catch (IOException ex) {
-                    Log.error("Preferences write error!", ex);
-                    preferences.getWriteError().set(true);
                 }
             }
         }, 0, 2000);
+        return preferences;
     }
 }

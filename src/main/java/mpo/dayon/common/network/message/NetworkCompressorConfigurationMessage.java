@@ -2,7 +2,7 @@ package mpo.dayon.common.network.message;
 
 import java.io.*;
 
-import mpo.dayon.assisted.compressor.CompressorEngineConfiguration;
+import mpo.dayon.common.compressor.CompressorEngineConfiguration;
 import mpo.dayon.common.squeeze.CompressionMethod;
 
 public class NetworkCompressorConfigurationMessage extends NetworkMessage {
@@ -42,10 +42,10 @@ public class NetworkCompressorConfigurationMessage extends NetworkMessage {
 
 	public static NetworkCompressorConfigurationMessage unmarshall(ObjectInputStream in) throws IOException {
 		final CompressionMethod method = unmarshallEnum(in, CompressionMethod.class);
-		final boolean useCase = in.readByte() == 1;
+		final boolean useCache = in.readByte() == 1;
 		final int maxSize = in.readInt();
 		final int purgeSize = in.readInt();
-		return new NetworkCompressorConfigurationMessage(new CompressorEngineConfiguration(method, useCase, maxSize, purgeSize));
+		return new NetworkCompressorConfigurationMessage(new CompressorEngineConfiguration(method, useCache, maxSize, purgeSize));
 	}
 
 	public String toString() {

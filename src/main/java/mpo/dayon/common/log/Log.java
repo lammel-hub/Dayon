@@ -16,7 +16,7 @@ import static java.lang.System.getProperty;
  * later (!)
  */
 public final class Log {
-    private static final boolean DEBUG = System.getProperty("dayon.debug") != null;
+    private static final boolean DEBUG = Boolean.getBoolean("dayon.debug");
 
     private static LogAppender out;
 
@@ -24,20 +24,21 @@ public final class Log {
     }
 
     static {
-        final String mode = System.getProperty("dayon.log", "console");
+        String mode = System.getProperty("dayon.log", "console");
         out = new ConsoleAppender();
+        if (mode.equals("file")) {
+            out = createFileAppender();
+        }
+    }
 
-        if ("file".equals(mode)) {
-            try {
-                final File logFile = getOrCreateLogFile();
-                // console ...
-                info("Log logFile : " + logFile.getAbsolutePath());
-                // logFile ...§
-                out = new FileAppender(logFile.getAbsolutePath());
-            } catch (IOException ex) {
-                // console ...
-                warn("Log file setup error (fallback to console)!", ex);
-            }
+    private static LogAppender createFileAppender() {
+        try {
+            String logFile = getOrCreateLogFile().getAbsolutePath();
+            info("Log logFile : " + logFile);
+            return new FileAppender(logFile);
+        } catch (IOException ex) {
+            warn("Log file setup error (fallback to console)!", ex);
+            return new ConsoleAppender();
         }
     }
 
